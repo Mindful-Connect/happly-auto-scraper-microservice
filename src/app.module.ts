@@ -7,9 +7,11 @@ import {
   ExtractedOpportunitySchema,
 } from './schemas/extractedOpportunitySchema';
 import { Field, FieldSchema } from './schemas/field.schema';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRoot('mongodb://localhost/nest'),
     MongooseModule.forFeature([
       { name: ExtractedOpportunity.name, schema: ExtractedOpportunitySchema },
