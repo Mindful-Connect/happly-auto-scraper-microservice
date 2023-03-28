@@ -8,6 +8,9 @@ export type ExtractedOpportunityDocument =
 
 @Schema()
 export class ExtractedOpportunity {
+  constructor(partial?: Partial<ExtractedOpportunity>) {
+    Object.assign(this, partial);
+  }
   /**
    * Generated UUID by this microservice. Used to identify the opportunity
    * among the admin portal and the core API.
@@ -16,22 +19,25 @@ export class ExtractedOpportunity {
   syncId: string; // UUID
 
   @Prop({ type: FieldSchema })
-  opportunity_provider_name: Field<string>;
+  opportunity_provider_name: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
-  opportunity_issuer_name: Field<string>;
+  opportunity_issuer_name: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
-  program_name: Field<string>;
+  program_name: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
-  application_opening_date: Field<Date | null, 'date'>;
+  application_opening_date: Field<Date | null, 'date'> = new Field<
+    null,
+    'date'
+  >();
 
   @Prop({ type: FieldSchema })
-  application_deadline: Field<Date | null, 'date'>;
+  application_deadline: Field<Date | null, 'date'> = new Field<null, 'date'>();
 
   @Prop({ type: FieldSchema })
-  opportunity_value_proposition: Field<string>;
+  opportunity_value_proposition: Field<string> = new Field();
 
   // TODO: Add more fields
 

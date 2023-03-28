@@ -8,15 +8,19 @@ import {
 } from './schemas/extractedOpportunitySchema';
 import { Field, FieldSchema } from './schemas/field.schema';
 import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { OpenaiModule } from './openai/openai.module';
 
 @Module({
   imports: [
+    EventEmitterModule.forRoot(),
     ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRoot('mongodb://localhost/nest'),
     MongooseModule.forFeature([
       { name: ExtractedOpportunity.name, schema: ExtractedOpportunitySchema },
       { name: Field.name, schema: FieldSchema },
     ]),
+    OpenaiModule,
   ],
   controllers: [AppController],
   providers: [AppService],
