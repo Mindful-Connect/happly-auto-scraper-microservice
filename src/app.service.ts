@@ -13,10 +13,14 @@ import { ChatGPTService } from './openai/services/chatgpt.service';
 import { encode, decode } from 'gpt-3-encoder';
 import { Opportunity } from './schemas/opportunity.schema';
 import { GPTFinishReason } from './openai/openai.types';
+import puppeteer from 'puppeteer';
 
 @Injectable()
 export class AppService {
-  private readonly opportunitiesQueue: ExtractedOpportunity[] = [];
+  private readonly extractingOpportunitiesQueue: {
+    url: string;
+    extractingOpportunityObjectValue: ExtractedOpportunity;
+  }[] = [];
 
   private systemMessage =
     'Given a chunk of HTML text, extract information asked by the user, and reply only in JSON format. your replies must be fully parsable by JSON.parse method in JavaScript.';
@@ -39,14 +43,45 @@ export class AppService {
   async submitURL(url: string): Promise<any> {
     // imagining all the webpages are not using javascript to render.
     const pageHTML = await axios.get(url);
-    const $ = cheerio.load(pageHTML.data, {
+    let $ = cheerio.load(pageHTML.data, {
       scriptingEnabled: false,
       xml: {
         // Disable `xmlMode` to parse HTML with htmlparser2.
         xmlMode: false,
       },
     });
-    const body = $('body');
+    let body = $('body');
+
+    // check if this is a CRP page
+    // TODO: maybe ask chatGPT to confirm
+    const clientRenderedPage = body.html().length < 200;
+
+    const opportunity = new this.opportunityModel(
+      new Opportunity({
+        url,
+        clientRenderedPage,
+      }),
+    );
+    await opportunity.save();
+
+    // if it is CRP, ask puppeteer to extract the information and then continue
+    // TODO Fix BUG: puppeteer is not working on windows
+    if (clientRenderedPage) {
+      const browser = await puppeteer.launch();
+      const page = await browser.newPage();
+
+      await page.goto(url);
+
+      const pageHTML = await page.content();
+      $ = cheerio.load(pageHTML, {
+        scriptingEnabled: false,
+        xml: {
+          // Disable `xmlMode` to parse HTML with htmlparser2.
+          xmlMode: false,
+        },
+      });
+      body = $('body');
+    }
 
     body.find('footer').remove();
     body.find('script').remove();
