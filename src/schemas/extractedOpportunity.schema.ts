@@ -11,6 +11,36 @@ export class ExtractedOpportunity {
   constructor(partial?: Partial<ExtractedOpportunity>) {
     Object.assign(this, partial);
   }
+
+  public interestingFields: string[] = [
+    'opportunity_provider_name',
+    'opportunity_issuer_name',
+    'program_name',
+    'application_opening_date',
+    'application_deadline',
+    'opportunity_value_proposition',
+    'opportunitys_grant_types',
+    'eligibility_requirements',
+    'application_country',
+    'province',
+    'municipality',
+    'company_size_requirements',
+    'company_revenue_requirements',
+    'company_reporting_requirements',
+    'industry',
+    'funding_amounts',
+    'application_process_type',
+
+    // TODO add these fields and decide if they are required or not whatever idk. some possible fields to add ???:
+
+    'opportunity_subcategories',
+    'opportunity_insights',
+    'opportunity_deadlines',
+    'opportunity_open_date',
+    'opportunity_process_time',
+    'opportunity_comp_req',
+  ];
+
   /**
    * Generated UUID by this microservice. Used to identify the opportunity
    * among the admin portal and the core API.
@@ -39,7 +69,38 @@ export class ExtractedOpportunity {
   @Prop({ type: FieldSchema })
   opportunity_value_proposition: Field<string> = new Field();
 
-  // TODO: Add more fields
+  @Prop({ type: FieldSchema })
+  opportunitys_grant_types: Field<string[]>;
+
+  @Prop({ type: FieldSchema })
+  eligibility_requirements: Field<string[]>;
+
+  @Prop({ type: FieldSchema })
+  application_country: Field<string>;
+
+  @Prop({ type: FieldSchema })
+  province: Field<string>;
+
+  @Prop({ type: FieldSchema })
+  municipality: Field<string>;
+
+  @Prop({ type: FieldSchema })
+  company_size_requirements: Field<number[]>;
+
+  @Prop({ type: FieldSchema })
+  company_revenue_requirements: Field<string>;
+
+  @Prop({ type: FieldSchema })
+  company_reporting_requirements: Field<string[]>;
+
+  @Prop({ type: FieldSchema })
+  industry: Field<string>;
+
+  @Prop({ type: FieldSchema })
+  funding_amounts: Field<number[]>;
+
+  @Prop({ type: FieldSchema })
+  application_process_type: Field<string[]>;
 
   @Prop({ default: getMySQLDateFormatUTC() })
   createdAt: string;

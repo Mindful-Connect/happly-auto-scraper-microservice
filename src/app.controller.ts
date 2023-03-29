@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Query } from '@nestjs/common';
 import { AppService } from './app.service';
-import { ExtractedOpportunity } from './schemas/extractedOpportunitySchema';
+import { ExtractedOpportunity } from './schemas/extractedOpportunity.schema';
+import { Opportunity } from './schemas/opportunity.schema';
 
 @Controller()
 export class AppController {
@@ -9,6 +10,11 @@ export class AppController {
   @Get()
   async findAllOpportunities(): Promise<ExtractedOpportunity[]> {
     return await this.appService.getOpportunities();
+  }
+
+  @Get('/submitted')
+  async findAllSubmittedOpportunities(): Promise<Opportunity[]> {
+    return await this.appService.getSubmittedOpportunities();
   }
 
   @Post('/submit-url')
