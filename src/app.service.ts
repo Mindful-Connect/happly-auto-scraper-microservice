@@ -166,8 +166,6 @@ export class AppService {
 
       console.log('chunks', readyToBeSent);
 
-      continue;
-
       const userMessage = this.getUserMessage(readyToBeSent.join(''), extractedOpportunityDocument);
 
       const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
