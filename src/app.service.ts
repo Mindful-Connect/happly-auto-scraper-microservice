@@ -17,8 +17,7 @@ import puppeteer from 'puppeteer';
 import { Field, FieldPossibleTypes } from './schemas/field.schema';
 import { isValidUrl } from './utils/helperFunctions';
 import { OpportunityStatusEnum } from './enums/opportunityStatus.enum';
-
-type NestedStringArray = Array<NestedStringArray | string>;
+import { NestedStringArray } from './app.types';
 
 @Injectable()
 export class AppService {
@@ -29,8 +28,6 @@ export class AppService {
 
   private systemMessage =
     'Given a chunk of HTML text, extract information asked by the user, and reply only in JSON format. your replies must be fully parsable by JSON.parse method in JavaScript.';
-
-  private tokenLimit = 8192;
 
   private rateLimitTokenCounter = 0;
   private rateLimitTokenPerMinute = 40000;
@@ -101,7 +98,7 @@ export class AppService {
 
       while (
         flattened.length > 0 &&
-        this.tokenLimit / 2 >=
+        ChatGPTService.tokenLimit / 2 >=
           this.countTokens([
             this.systemMessage,
             this.getUserMessage(
@@ -135,7 +132,7 @@ export class AppService {
             },
           ],
           temperature: 0.7,
-          max_tokens: this.tokenLimit - totalMessagesToken, // completion token.
+          max_tokens: ChatGPTService.tokenLimit - totalMessagesToken, // completion token.
           top_p: 1,
           frequency_penalty: 0,
           presence_penalty: 0,
@@ -196,8 +193,6 @@ export class AppService {
 
     // TODO: go to the relevant links and try extracting the data (one level only).
     for (const relevantLink of Object.keys(relevantLinks)) {
-      const requestingFields = relevantLinks[relevantLink];
-
       const pageHTML = await axios.get(relevantLink);
       let $ = this.getCheerioAPIFromHTML(pageHTML.data);
       let body = $('body');
@@ -229,7 +224,7 @@ export class AppService {
 
         while (
           flattened.length > 0 &&
-          this.tokenLimit / 2 >=
+          ChatGPTService.tokenLimit / 2 >=
             this.countTokens([
               this.systemMessage,
               this.getUserMessage(
@@ -250,6 +245,8 @@ export class AppService {
 
         const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
 
+        const requestingFields = this.getRequestingFields(extractedOpportunityDocument);
+
         try {
           const gptResponse = await this.chatGPTService.getResponse({
             model: 'gpt-4-0314',
@@ -264,7 +261,7 @@ export class AppService {
               },
             ],
             temperature: 0.7,
-            max_tokens: this.tokenLimit - totalMessagesToken, // completion token.
+            max_tokens: ChatGPTService.tokenLimit - totalMessagesToken, // completion token.
             top_p: 1,
             frequency_penalty: 0,
             presence_penalty: 0,
@@ -368,7 +365,7 @@ export class AppService {
       this.systemMessage,
       this.getUserMessage(htmlChunk, extractedOpportunityDocument),
     ]);
-    if (this.tokenLimit / 2 < numOfTokens) {
+    if (ChatGPTService.tokenLimit / 2 < numOfTokens) {
       const nextSeparator =
         this.segmentSplittingIdentifiers.length - 1 === separatorIndex
           ? separatorIndex
