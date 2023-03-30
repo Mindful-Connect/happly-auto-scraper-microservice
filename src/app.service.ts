@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import {
   ExtractedOpportunity,
   ExtractedOpportunityDocument,
+  InterestingFields,
 } from './schemas/extractedOpportunity.schema';
 import { Model } from 'mongoose';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -10,16 +11,20 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { minify } from 'html-minifier-terser';
 import { ChatGPTService } from './openai/services/chatgpt.service';
-import { encode, decode } from 'gpt-3-encoder';
-import { Opportunity } from './schemas/opportunity.schema';
+import { encode } from 'gpt-3-encoder';
 import { GPTFinishReason } from './openai/openai.types';
 import puppeteer from 'puppeteer';
+import { Field, FieldPossibleTypes } from './schemas/field.schema';
+import { isValidUrl } from './utils/helperFunctions';
+import { OpportunityStatusEnum } from './enums/opportunityStatus.enum';
+
+type NestedStringArray = Array<NestedStringArray | string>;
 
 @Injectable()
 export class AppService {
   private readonly extractingOpportunitiesQueue: {
     url: string;
-    extractingOpportunityObjectValue: ExtractedOpportunity;
+    extractingOpportunityDocument: ExtractedOpportunityDocument;
   }[] = [];
 
   private systemMessage =
@@ -31,11 +36,11 @@ export class AppService {
   private rateLimitTokenPerMinute = 40000;
   private rateLimitRequestPerMinute = 200;
 
+  private segmentSplittingIdentifiers: string[] = ['<h1', '<h2', '<h3', '<p', '.'];
+
   constructor(
     @InjectModel(ExtractedOpportunity.name)
     private extractedOpportunityModel: Model<ExtractedOpportunityDocument>,
-    @InjectModel(Opportunity.name)
-    private opportunityModel: Model<Opportunity>,
     private chatGPTService: ChatGPTService,
     private eventEmitter: EventEmitter2,
   ) {}
@@ -56,13 +61,17 @@ export class AppService {
     // TODO: maybe ask chatGPT to confirm
     const clientRenderedPage = body.html().length < 200;
 
-    const opportunity = new this.opportunityModel(
-      new Opportunity({
-        url,
-        clientRenderedPage,
-      }),
-    );
-    await opportunity.save();
+    let extractedOpportunityDocument = await this.extractedOpportunityModel.findOne({ url }).exec();
+
+    if (extractedOpportunityDocument === null) {
+      extractedOpportunityDocument = new this.extractedOpportunityModel(
+        new ExtractedOpportunity({
+          url,
+          clientRenderedPage,
+        }),
+      );
+      await extractedOpportunityDocument.save();
+    }
 
     // if it is CRP, ask puppeteer to extract the information and then continue
     // TODO Fix BUG: puppeteer is not working on windows
@@ -82,13 +91,7 @@ export class AppService {
       });
       body = $('body');
     }
-
-    body.find('footer').remove();
-    body.find('script').remove();
-    body.find('noscript').remove();
-    body.find('style').remove();
-    body.find('link').remove();
-    body.find('header').remove();
+    $('body script, body footer, body noscript, body style, body link, body header').remove();
 
     const strippedBody = await minify(body.html(), {
       collapseWhitespace: true,
@@ -115,7 +118,7 @@ export class AppService {
     });
 
     strippedBody$('div, section, table, aside').each((index, element) => {
-      if (!element.childNodes.find((c) => c.type === 'text')) {
+      if (!element.childNodes.find(c => c.type === 'text')) {
         $(element).unwrap();
         if (element.children.length === 0) {
           $(element).remove();
@@ -123,170 +126,199 @@ export class AppService {
           $(element).children().unwrap();
         }
       }
-      if (['div', 'section', 'table'].includes(element.tagName)) {
-        console.log(
-          'childNodes[0].type',
-          element.childNodes.map((c) => c?.type ?? ''),
-          'tagName',
-          element.tagName,
-          !element.childNodes.find((c) => c.type === 'text'),
-          element.children.length,
-        );
-      }
+      // if (['div', 'section', 'table'].includes(element.tagName)) {
+      //   console.log(
+      //     'childNodes[0].type',
+      //     element.childNodes.map(c => c?.type ?? ''),
+      //     'tagName',
+      //     element.tagName,
+      //     !element.childNodes.find(c => c.type === 'text'),
+      //     element.children.length,
+      //   );
+      // }
     });
 
-    console.log(strippedBody$.html());
+    // console.log(strippedBody$.html());
 
     const stripped = strippedBody$.html();
 
-    const segmentingMethods = {
-      '<h1': (htmlChunk) => {
-        const segments = htmlChunk.split('<h1');
-        let success = true;
-        if (segments.length === 1) {
-          success = false;
-        }
-        return { success, segments: segments.reverse() };
-      },
-      '<h2': (htmlChunk) => {
-        const segments = htmlChunk.split('<h2');
-        let success = true;
-        if (segments.length === 1) {
-          success = false;
-        }
-        return { success, segments };
-      },
-      '<h3': (htmlChunk) => {
-        const segments = htmlChunk.split('<h3');
-        let success = true;
-        if (segments.length === 1) {
-          success = false;
-        }
-        return { success, segments };
-      },
-      '<p': (htmlChunk) => {
-        const segments = htmlChunk.split('<p');
-        let success = true;
-        if (segments.length === 1) {
-          success = false;
-        }
-        return { success, segments };
-      },
-    };
+    const requestingFields = this.getRequestingFields(extractedOpportunityDocument);
 
-    const getNextSeparator = (separatorIndex = 0) => {
-      return Object.keys(segmentingMethods).length - 1 === separatorIndex
-        ? separatorIndex
-        : separatorIndex + 1;
-    };
+    const chunks = this.segmentTheChunk(stripped, extractedOpportunityDocument);
+    const flattened = chunks.flat(<20>Infinity).filter(c => c !== '') as string[];
 
-    const segmentTheChunk = (
-      htmlChunk,
-      separatorIndex = 0,
-    ): string[] | string => {
-      console.log(
-        'separatorIndex',
-        separatorIndex,
-        'htmlChunk',
-        htmlChunk.slice(0, 100),
-      );
-      // should i chunk it more?
-      const numOfTokens = this.countTokens([
-        this.systemMessage,
-        this.getUserMessage(htmlChunk),
-      ]);
-      if (this.tokenLimit / 2 < numOfTokens) {
-        const nextSeparator = getNextSeparator(separatorIndex);
-        const { success, segments } =
-          Object.values(segmentingMethods)[separatorIndex](htmlChunk);
-        if (success) {
-          return segments.map((s) => segmentTheChunk(s, nextSeparator));
-        }
-        if (nextSeparator === separatorIndex) {
-          return '';
-        }
-        return segmentTheChunk(htmlChunk, nextSeparator);
-      } else {
-        return htmlChunk;
-      }
-    };
+    while (flattened.length > 0) {
+      const readyToBeSent: string[] = [];
 
-    const readyToBeSent: string[] = [];
-
-    const chunks = segmentTheChunk(stripped);
-    if (typeof chunks === 'string') {
-      readyToBeSent.push(chunks);
-    } else {
-      const flattened = chunks.flat(Infinity).filter((c) => c !== '');
       while (
         flattened.length > 0 &&
         this.tokenLimit / 2 >=
           this.countTokens([
             this.systemMessage,
-            this.getUserMessage(readyToBeSent.join('') + flattened[0]),
+            this.getUserMessage(
+              readyToBeSent.join('') + flattened[0],
+              extractedOpportunityDocument,
+            ),
           ])
       ) {
         readyToBeSent.push(flattened.shift());
       }
+
+      console.log('chunks', readyToBeSent);
+
+      continue;
+
+      const userMessage = this.getUserMessage(readyToBeSent.join(''), extractedOpportunityDocument);
+
+      const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
+
+      try {
+        const gptResponse = await this.chatGPTService.getResponse({
+          model: 'gpt-4-0314',
+          messages: [
+            {
+              role: 'system',
+              content: this.systemMessage,
+            },
+            {
+              role: 'user',
+              content: userMessage,
+            },
+          ],
+          temperature: 0.7,
+          max_tokens: this.tokenLimit - totalMessagesToken, // completion token.
+          top_p: 1,
+          frequency_penalty: 0,
+          presence_penalty: 0,
+          n: 1,
+          stream: false,
+        });
+
+        // this.rateLimitTokenCounter += gptResponse.usage.total_tokens;
+
+        console.log('gptResponse', gptResponse);
+
+        const finishReason: GPTFinishReason = gptResponse.choices[0].finish_reason;
+
+        const responseStringJson = gptResponse.choices[0].message.content;
+        const response = JSON.parse(responseStringJson);
+
+        Object.keys(response).forEach(key => {
+          const value: { data: any; relevant_link: string } = response[key];
+          if (requestingFields.includes(key)) {
+            extractedOpportunityDocument.status = OpportunityStatusEnum.PARTIALLY_EXTRACTED;
+
+            const field = extractedOpportunityDocument[key] as Field<FieldPossibleTypes>;
+            field.data = value.data;
+            field.relevantLink = isValidUrl(value.relevant_link)
+              ? value.relevant_link
+              : field.relevantLink;
+          }
+        });
+
+        // save in db
+        await extractedOpportunityDocument.save();
+
+        console.log('response', response);
+      } catch (e) {
+        console.error(e, e.response, e.response.data);
+      }
     }
 
-    console.log('chunks', readyToBeSent);
+    const anyOtherRequestingFields = this.getRequestingFields(extractedOpportunityDocument);
 
-    const totalMessagesToken = this.countTokens([
+    const relevantLinks: { [key in string]: string[] } = {};
+    anyOtherRequestingFields.forEach(fieldName => {
+      const field = extractedOpportunityDocument[fieldName] as Field<FieldPossibleTypes>;
+      if (isValidUrl(field.relevantLink)) {
+        if (relevantLinks[field.relevantLink]) {
+          relevantLinks[field.relevantLink].push(fieldName);
+        } else {
+          relevantLinks[field.relevantLink] = [fieldName];
+        }
+      }
+    });
+
+    if (Object.keys(relevantLinks).length < 1) {
+      extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
+      await extractedOpportunityDocument.save();
+      return;
+    }
+
+    // TODO: go to the relevant links and try extracting the data (one level only).
+  }
+
+  private getRequestingFields(
+    extractedOpportunityDocument: ExtractedOpportunityDocument,
+  ): string[] {
+    return InterestingFields.filter(f => {
+      // return value -> false: not requesting (it's filled) - true: requesting (it's missing)
+      const field = extractedOpportunityDocument[f] as Field<FieldPossibleTypes>;
+      // if (isValidUrl(field.relevantLink)) {
+      //   return false;
+      // }
+      if (field.data === null) {
+        return true;
+      }
+      let data: FieldPossibleTypes;
+      switch (field.fieldType) {
+        case 'string':
+          return field.data === '';
+        case 'string[]':
+          data = field.data as string[];
+          return data.filter(d => d !== '').length < 1;
+        case 'number':
+          data = field.data as number;
+          return isNaN(data);
+        case 'number[]':
+          data = field.data as number[];
+          return data.filter(d => !isNaN(d)).length < 1;
+        case 'date':
+          return field.data === '';
+      }
+    });
+  }
+
+  private segmentMethod(htmlChunk: string, identifier: string) {
+    const segments = htmlChunk.split(identifier);
+    let success = true;
+    if (segments.length === 1) {
+      success = false;
+    }
+    return { success, segments: identifier === '<h1' ? segments.reverse() : segments };
+  }
+
+  private segmentTheChunk(
+    htmlChunk: string,
+    extractedOpportunityDocument: ExtractedOpportunityDocument,
+    separatorIndex = 0,
+  ): NestedStringArray {
+    // should i chunk it more?
+    const numOfTokens = this.countTokens([
       this.systemMessage,
-      this.getUserMessage(readyToBeSent.join('')),
+      this.getUserMessage(htmlChunk, extractedOpportunityDocument),
     ]);
-
-    try {
-      const gptResponse = await this.chatGPTService.getResponse({
-        model: 'gpt-4-0314',
-        messages: [
-          {
-            role: 'system',
-            content: this.systemMessage,
-          },
-          {
-            role: 'user',
-            content: this.getUserMessage(readyToBeSent.join('')),
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: this.tokenLimit - totalMessagesToken, // completion token.
-        top_p: 1,
-        frequency_penalty: 0,
-        presence_penalty: 0,
-        n: 1,
-        stream: false,
-      });
-
-      console.log('gptResponse', gptResponse);
-
-      const finishReason: GPTFinishReason =
-        gptResponse.choices[0].finish_reason;
-
-      const responseStringJson = gptResponse.choices[0].message.content;
-      const response = JSON.parse(responseStringJson);
-
-      // TODO: add to db
-
-      console.log('response', response);
-    } catch (e) {
-      console.error(e, e.response, e.response.data);
+    if (this.tokenLimit / 2 < numOfTokens) {
+      const nextSeparator =
+        this.segmentSplittingIdentifiers.length - 1 === separatorIndex
+          ? separatorIndex
+          : separatorIndex + 1;
+      const { success, segments } = this.segmentMethod(
+        htmlChunk,
+        this.segmentSplittingIdentifiers[separatorIndex],
+      );
+      if (success) {
+        return segments.map(s =>
+          this.segmentTheChunk(s, extractedOpportunityDocument, nextSeparator),
+        );
+      }
+      if (nextSeparator === separatorIndex) {
+        return [''];
+      }
+      return this.segmentTheChunk(htmlChunk, extractedOpportunityDocument, nextSeparator);
+    } else {
+      return [htmlChunk];
     }
-
-    return;
-
-    const newOpportunity = new ExtractedOpportunity();
-
-    console.log(newOpportunity);
-
-    const opportunityDocument = new this.extractedOpportunityModel(
-      newOpportunity,
-    );
-
-    console.log(opportunityDocument);
-
-    // await opportunityDocument.save();
   }
 
   private countTokens(messages: string[]) {
@@ -302,7 +334,21 @@ export class AppService {
     return totalTokens;
   }
 
-  private getUserMessage(chunk: string) {
+  private getUserMessage(chunk: string, extractedOpportunity: ExtractedOpportunityDocument) {
+    let whereClauses = '';
+    let jsonString = '';
+    const requestingFields = this.getRequestingFields(extractedOpportunity);
+    requestingFields.forEach((fieldName, index) => {
+      const field = extractedOpportunity[fieldName] as Field<FieldPossibleTypes>;
+      if (field.contextAwarenessHelper) {
+        whereClauses += `${field.contextAwarenessHelper}\n`;
+      }
+      jsonString += `"${fieldName}": Value<${field.fieldType}>`;
+      if (index !== requestingFields.length - 1) {
+        jsonString += ',';
+      }
+    });
+
     return `Your replies must be only JSON. Extract from this chunk:
 
 ${chunk}
@@ -316,27 +362,10 @@ type Value<T> = {
 }
 
 where \`relevant_link\` is any internal link to relevant information about the context of the JSON object property.
-where \`opportunitys_grant_types\` is an array of strings, phrasing what types of grants this opportunity gives the applicants.
-where \`application_process_type\` is an array of all the possible ways to apply for this program. Possible values are: "online form", "contacting representatives", or "email submission"
+${whereClauses}
 ---
 {
-  "opportunity_provider_name": Value<string>,
-  "opportunity_issuer_name": Value<string>,
-  "program_name": Value<string>,
-  "application_opening_date": Value<Date>,
-  "application_deadline": Value<Date>,
-  "opportunity_value_proposition": Value<string[]>,
-  "opportunitys_grant_types": Value<string[]>,
-  "eligibility_requirements": Value<string[]>,
-  "application_country": Value<string>,
-  "province": Value<string>,
-  "municipality": Value<string>,
-  "company_size_requirements": Value<number[]>,
-  "company_revenue_requirements": Value<string>,
-  "company_reporting_requirements": Value<string[]>,
-  "industry": Value<string>,
-  "funding_amounts": Value<number[]>,
-  "application_process_type": Value<string[]>
+  ${jsonString}
 }`;
   }
 
@@ -352,9 +381,5 @@ where \`application_process_type\` is an array of all the possible ways to apply
 
   async getOpportunities(): Promise<ExtractedOpportunity[]> {
     return await this.extractedOpportunityModel.find().exec();
-  }
-
-  async getSubmittedOpportunities(): Promise<Opportunity[]> {
-    return await this.opportunityModel.find().exec();
   }
 }

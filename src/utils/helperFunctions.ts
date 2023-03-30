@@ -26,3 +26,13 @@ export function getMySQLDateFormatUTC() {
 export function newUUID() {
   return uuidv4();
 }
+
+export function isValidUrl(string) {
+  try {
+    if (string.length < 1) return false;
+    new URL(string);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}

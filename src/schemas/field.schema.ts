@@ -5,20 +5,9 @@ import { HydratedDocument, Schema as SchemaMongoose } from 'mongoose';
  * The possible types of the data extracted by chatGPT. This is used to
  * tell chatGPT what type of data to expect. (e.g. string, number, etc.)
  */
-export type FieldPossibleTypes =
-  | string
-  | string[]
-  | number
-  | number[]
-  | Date
-  | null;
+export type FieldPossibleTypes = string | string[] | number | number[] | null;
 
-export type FieldPossibleTypesString =
-  | 'string'
-  | 'string[]'
-  | 'number'
-  | 'number[]'
-  | 'date';
+export type FieldPossibleTypesString = 'string' | 'string[]' | 'number' | 'number[]' | 'date';
 
 export type FieldDocument = HydratedDocument<Field>;
 
@@ -26,10 +15,12 @@ export type FieldDocument = HydratedDocument<Field>;
  * The schema for the fields extracted by chatGPT.
  */
 @Schema({ _id: false }) // Disable _id generation for the base schema
-export class Field<
-  TData extends FieldPossibleTypes = null,
-  TStringData extends FieldPossibleTypesString = 'string',
-> {
+export class Field<TData extends FieldPossibleTypes = null> {
+  constructor(fieldType: FieldPossibleTypesString = 'string', contextAwarenessHelper?: string) {
+    this.fieldType = fieldType;
+    this.contextAwarenessHelper = contextAwarenessHelper;
+  }
+
   /**
    * For chatGPT to be able to understand the context without having to describe
    * it all the time.
@@ -43,8 +34,8 @@ export class Field<
    * Examples include: "string", "string[]", "number", "number[]"
    * being used in a prompt: "opportunity_provider_name": Value<string>.
    */
-  @Prop({ required: true })
-  fieldType: TStringData;
+  @Prop({ type: SchemaMongoose.Types.String, required: true })
+  fieldType: FieldPossibleTypesString;
 
   /**
    * The actual data extracted by chatGPT
