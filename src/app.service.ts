@@ -45,16 +45,21 @@ export class AppService {
     private eventEmitter: EventEmitter2,
   ) {}
 
-  async submitURL(url: string): Promise<any> {
-    // imagining all the webpages are not using javascript to render.
-    const pageHTML = await axios.get(url);
-    let $ = cheerio.load(pageHTML.data, {
+  private getCheerioAPIFromHTML(html: string) {
+    return cheerio.load(html, {
       scriptingEnabled: false,
       xml: {
         // Disable `xmlMode` to parse HTML with htmlparser2.
         xmlMode: false,
       },
     });
+  }
+
+  async submitURL(url: string): Promise<any> {
+    // imagining all the webpages are not using javascript to render.
+    const pageHTML = await axios.get(url);
+
+    let $ = this.getCheerioAPIFromHTML(pageHTML.data);
     let body = $('body');
 
     // check if this is a CRP page
@@ -82,67 +87,11 @@ export class AppService {
       await page.goto(url);
 
       const pageHTML = await page.content();
-      $ = cheerio.load(pageHTML, {
-        scriptingEnabled: false,
-        xml: {
-          // Disable `xmlMode` to parse HTML with htmlparser2.
-          xmlMode: false,
-        },
-      });
+      $ = this.getCheerioAPIFromHTML(pageHTML);
       body = $('body');
     }
-    $('body script, body footer, body noscript, body style, body link, body header').remove();
 
-    const strippedBody = await minify(body.html(), {
-      collapseWhitespace: true,
-      removeComments: true,
-      removeEmptyElements: true,
-      removeEmptyAttributes: true,
-      removeOptionalTags: true,
-      removeRedundantAttributes: true,
-    });
-
-    const strippedBody$ = cheerio.load(strippedBody, {}, false);
-
-    strippedBody$('*').each(function (i, elem) {
-      if (elem.hasOwnProperty('attribs')) {
-        elem = elem as cheerio.Element;
-        if (!elem.attribs.href || elem.attribs.href === '#') {
-          elem.attribs = {};
-          return;
-        }
-        elem.attribs = {
-          href: elem.attribs.href,
-        };
-      }
-    });
-
-    strippedBody$('div, section, table, aside').each((index, element) => {
-      if (!element.childNodes.find(c => c.type === 'text')) {
-        $(element).unwrap();
-        if (element.children.length === 0) {
-          $(element).remove();
-        } else {
-          $(element).children().unwrap();
-        }
-      }
-      // if (['div', 'section', 'table'].includes(element.tagName)) {
-      //   console.log(
-      //     'childNodes[0].type',
-      //     element.childNodes.map(c => c?.type ?? ''),
-      //     'tagName',
-      //     element.tagName,
-      //     !element.childNodes.find(c => c.type === 'text'),
-      //     element.children.length,
-      //   );
-      // }
-    });
-
-    // console.log(strippedBody$.html());
-
-    const stripped = strippedBody$.html();
-
-    const requestingFields = this.getRequestingFields(extractedOpportunityDocument);
+    const stripped = await this.getStrippedBodyHTML($);
 
     const chunks = this.segmentTheChunk(stripped, extractedOpportunityDocument);
     const flattened = chunks.flat(<20>Infinity).filter(c => c !== '') as string[];
@@ -169,6 +118,8 @@ export class AppService {
       const userMessage = this.getUserMessage(readyToBeSent.join(''), extractedOpportunityDocument);
 
       const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
+
+      const requestingFields = this.getRequestingFields(extractedOpportunityDocument);
 
       try {
         const gptResponse = await this.chatGPTService.getResponse({
@@ -244,6 +195,127 @@ export class AppService {
     }
 
     // TODO: go to the relevant links and try extracting the data (one level only).
+    for (const relevantLink of Object.keys(relevantLinks)) {
+      const requestingFields = relevantLinks[relevantLink];
+
+      const pageHTML = await axios.get(relevantLink);
+      let $ = this.getCheerioAPIFromHTML(pageHTML.data);
+      let body = $('body');
+
+      // check if this is a CRP page
+      // TODO: maybe ask chatGPT to confirm
+      const clientRenderedPage = body.html().length < 200;
+
+      // if it is CRP, ask puppeteer to extract the information and then continue
+      // TODO Fix BUG: puppeteer is not working on windows
+      if (clientRenderedPage) {
+        const browser = await puppeteer.launch();
+        const page = await browser.newPage();
+
+        await page.goto(url);
+
+        const pageHTML = await page.content();
+        $ = this.getCheerioAPIFromHTML(pageHTML);
+        body = $('body');
+      }
+
+      const stripped = await this.getStrippedBodyHTML($);
+
+      const chunks = this.segmentTheChunk(stripped, extractedOpportunityDocument);
+      const flattened = chunks.flat(<20>Infinity).filter(c => c !== '') as string[];
+
+      while (flattened.length > 0) {
+        const readyToBeSent: string[] = [];
+
+        while (
+          flattened.length > 0 &&
+          this.tokenLimit / 2 >=
+            this.countTokens([
+              this.systemMessage,
+              this.getUserMessage(
+                readyToBeSent.join('') + flattened[0],
+                extractedOpportunityDocument,
+              ),
+            ])
+        ) {
+          readyToBeSent.push(flattened.shift());
+        }
+
+        console.log('chunks', readyToBeSent);
+
+        const userMessage = this.getUserMessage(
+          readyToBeSent.join(''),
+          extractedOpportunityDocument,
+        );
+
+        const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
+
+        try {
+          const gptResponse = await this.chatGPTService.getResponse({
+            model: 'gpt-4-0314',
+            messages: [
+              {
+                role: 'system',
+                content: this.systemMessage,
+              },
+              {
+                role: 'user',
+                content: userMessage,
+              },
+            ],
+            temperature: 0.7,
+            max_tokens: this.tokenLimit - totalMessagesToken, // completion token.
+            top_p: 1,
+            frequency_penalty: 0,
+            presence_penalty: 0,
+            n: 1,
+            stream: false,
+          });
+
+          // this.rateLimitTokenCounter += gptResponse.usage.total_tokens;
+
+          console.log('gptResponse', gptResponse);
+
+          const finishReason: GPTFinishReason = gptResponse.choices[0].finish_reason;
+
+          const responseStringJson = gptResponse.choices[0].message.content;
+          const response = JSON.parse(responseStringJson);
+
+          Object.keys(response).forEach(key => {
+            const value: { data: any; relevant_link: string } = response[key];
+            if (requestingFields.includes(key)) {
+              extractedOpportunityDocument.status = OpportunityStatusEnum.PARTIALLY_EXTRACTED;
+
+              const field = extractedOpportunityDocument[key] as Field<FieldPossibleTypes>;
+              field.data = value.data;
+              field.relevantLink = isValidUrl(value.relevant_link)
+                ? value.relevant_link
+                : field.relevantLink;
+            }
+          });
+
+          // save in db
+          await extractedOpportunityDocument.save();
+
+          console.log('response', response);
+        } catch (e) {
+          console.error(e, e.response, e.response.data);
+        }
+      }
+
+      const anyOtherRequestingFields = this.getRequestingFields(extractedOpportunityDocument);
+
+      const isDoomed = anyOtherRequestingFields.every(fieldName => {
+        const field = extractedOpportunityDocument[fieldName] as Field<FieldPossibleTypes>;
+        return !isValidUrl(field.relevantLink);
+      });
+
+      if (isDoomed) {
+        extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
+        await extractedOpportunityDocument.save();
+        return;
+      }
+    }
   }
 
   private getRequestingFields(
@@ -332,10 +404,13 @@ export class AppService {
     return totalTokens;
   }
 
-  private getUserMessage(chunk: string, extractedOpportunity: ExtractedOpportunityDocument) {
+  private getUserMessage(
+    chunk: string,
+    extractedOpportunity: ExtractedOpportunityDocument,
+    requestingFields: string[] = this.getRequestingFields(extractedOpportunity),
+  ) {
     let whereClauses = '';
     let jsonString = '';
-    const requestingFields = this.getRequestingFields(extractedOpportunity);
     requestingFields.forEach((fieldName, index) => {
       const field = extractedOpportunity[fieldName] as Field<FieldPossibleTypes>;
       if (field.contextAwarenessHelper) {
@@ -365,6 +440,57 @@ ${whereClauses}
 {
   ${jsonString}
 }`;
+  }
+
+  private async getStrippedBodyHTML(_$: cheerio.CheerioAPI) {
+    _$('body script, body footer, body noscript, body style, body link, body header').remove();
+
+    const strippedBody = await minify(_$('body').html(), {
+      collapseWhitespace: true,
+      removeComments: true,
+      removeEmptyElements: true,
+      removeEmptyAttributes: true,
+      removeOptionalTags: true,
+      removeRedundantAttributes: true,
+    });
+
+    const $ = cheerio.load(strippedBody, {}, false);
+
+    $('*').each(function (i, elem) {
+      if (elem.hasOwnProperty('attribs')) {
+        elem = elem as cheerio.Element;
+        if (!elem.attribs.href || elem.attribs.href === '#') {
+          elem.attribs = {};
+          return;
+        }
+        elem.attribs = {
+          href: elem.attribs.href,
+        };
+      }
+    });
+
+    $('div, section, table, aside').each((index, element) => {
+      if (!element.childNodes.find(c => c.type === 'text')) {
+        $(element).unwrap();
+        if (element.children.length === 0) {
+          $(element).remove();
+        } else {
+          $(element).children().unwrap();
+        }
+      }
+      // if (['div', 'section', 'table'].includes(element.tagName)) {
+      //   console.log(
+      //     'childNodes[0].type',
+      //     element.childNodes.map(c => c?.type ?? ''),
+      //     'tagName',
+      //     element.tagName,
+      //     !element.childNodes.find(c => c.type === 'text'),
+      //     element.children.length,
+      //   );
+      // }
+    });
+
+    return $.html();
   }
 
   async helloMicroservice(): Promise<any> {
