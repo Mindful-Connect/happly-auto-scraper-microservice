@@ -10,6 +10,8 @@ export const InterestingFields: string[] = [
   'opportunity_provider_name',
   'opportunity_issuer_name',
   'program_name',
+  'program_description',
+  'link_to_application',
   'application_opening_date',
   'application_deadline',
   'opportunity_value_proposition',
@@ -21,9 +23,13 @@ export const InterestingFields: string[] = [
   'company_size_requirements',
   'company_revenue_requirements',
   'company_reporting_requirements',
-  'industry',
+  'industries',
+  'opportunity_subcategories',
+  'keywords',
   'funding_amounts',
   'application_process_type',
+  'application_process_time',
+  'opportunity_insights',
 
   // TODO add these fields and decide if they are required or not whatever idk. some possible fields to add ???:
 
@@ -81,6 +87,18 @@ export class ExtractedOpportunity {
   program_name: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
+  program_description: Field<string> = new Field(
+    'string',
+    'where `program_description` is a description of the program described in 1000 characters (max) or less.',
+  );
+
+  @Prop({ type: FieldSchema })
+  link_to_application: Field<string> = new Field(
+    'string',
+    'where `link_to_application` is a link to the application page where applicants can start applying on.',
+  );
+
+  @Prop({ type: FieldSchema })
   application_opening_date: Field<string> = new Field('date');
 
   @Prop({ type: FieldSchema })
@@ -117,7 +135,24 @@ export class ExtractedOpportunity {
   company_reporting_requirements: Field<string[]> = new Field('string[]');
 
   @Prop({ type: FieldSchema })
-  industry: Field<string> = new Field();
+  industries: Field<string[]> = new Field(
+    'string[]',
+    'where `industries` is an array of strings, phrasing what industries this opportunity falls under.' +
+      ' Examples are: "Agriculture", "Biotechnology", "Film/Music/Entertainment", Manufacturing", "Technology", "Educational Services", "Mining",' +
+      ' "Artificial Intelligence", "Food Processing", "Healthcare", "Information/Communications Technology", "Environmental Sustainability"',
+  );
+
+  @Prop({ type: FieldSchema })
+  opportunity_subcategories: Field<string[]> = new Field(
+    'string[]',
+    'where `opportunity_subcategories` is an array of strings, phrasing what subcategories this opportunity falls under.',
+  );
+
+  @Prop({ type: FieldSchema })
+  keywords: Field<string[]> = new Field(
+    'string[]',
+    'where `keywords` is an array of strings, phrasing what keywords this opportunity falls under.',
+  );
 
   @Prop({ type: FieldSchema })
   funding_amounts: Field<number[]> = new Field('number[]');
@@ -127,8 +162,22 @@ export class ExtractedOpportunity {
     'string[]',
     'where `application_process_type` is an array of all the possible ways to apply for this program. Possible values are: "online form", "contacting representatives", or "email submission"',
   );
-  // </editor-fold>
 
+  @Prop({ type: FieldSchema })
+  application_process_time: Field<string> = new Field(
+    'string',
+    'where `application_process_time` is the time it takes to process an application. Possible values are: ' +
+      '"Long", "Moderate", "Quick"',
+  );
+
+  @Prop({ type: FieldSchema })
+  opportunity_insights: Field<string[]> = new Field(
+    'string[]',
+    'where `opportunity_insights` is an array of strings, stating brief facts to consider about the opportunities that an applicant could have in mind just from reading those bullet points. ' +
+      'Example: `["The following companies are eligible:", "Companies with less than 10 employees", "Companies with less than 1 million in revenue"]`',
+  );
+
+  // </editor-fold>
   @Prop({ default: getMySQLDateFormatUTC() })
   createdAt: string;
 

@@ -10,6 +10,7 @@ import { Field, FieldSchema } from './schemas/field.schema';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { OpenaiModule } from './openai/openai.module';
+import { ExtractorService } from './extractor.service';
 
 @Module({
   imports: [
@@ -23,6 +24,6 @@ import { OpenaiModule } from './openai/openai.module';
     OpenaiModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, ExtractorService],
 })
 export class AppModule {}

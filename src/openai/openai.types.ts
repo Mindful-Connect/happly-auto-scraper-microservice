@@ -1,11 +1,11 @@
 export type ChatGPTAgent = 'user' | 'system' | 'assistant';
 
-export type GPTFinishReason =
-  | 'stop'
-  | 'length'
-  | 'content_filter'
-  | 'null'
-  | null; // not sure which null it is.. string or the actual null.
+export enum GPTFinishReason {
+  STOP = 'stop',
+  LENGTH = 'length',
+  CONTENT_FILTER = 'content_filter',
+  NULL = 'null',
+}
 
 export interface ChatGPTMessage {
   role: ChatGPTAgent;

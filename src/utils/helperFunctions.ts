@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import * as cheerio from 'cheerio';
 
 /**
  * Get the current date and time in the MySQL date format in UTC.
@@ -27,12 +28,40 @@ export function newUUID() {
   return uuidv4();
 }
 
-export function isValidUrl(string) {
+export function getCheerioAPIFromHTML(html: string) {
+  return cheerio.load(html, {
+    scriptingEnabled: false,
+    xml: {
+      // Disable `xmlMode` to parse HTML with htmlparser2.
+      xmlMode: false,
+    },
+  });
+}
+
+export function isValidUri(uri: string | null) {
+  return uri !== null && uri.length > 0;
+}
+
+export function isValidUrl(url: string) {
   try {
-    if (string.length < 1) return false;
-    new URL(string);
+    if (url.length < 1) return false;
+    new URL(url);
     return true;
-  } catch (err) {
+  } catch (e) {
     return false;
+  }
+}
+
+export function tryReassembleUrl(appUrl: string, uri: string) {
+  try {
+    const url = new URL(appUrl);
+
+    if (uri.startsWith('/')) {
+      return url.origin + uri;
+    } else {
+      return url.origin + '/' + uri;
+    }
+  } catch (e) {
+    throw new Error('Invalid URL');
   }
 }
