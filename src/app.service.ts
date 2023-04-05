@@ -1,9 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import {
-  ExtractedOpportunity,
-  ExtractedOpportunityDocument,
-} from './schemas/extractedOpportunity.schema';
+import { ExtractedOpportunity, ExtractedOpportunityDocument } from './schemas/extractedOpportunity.schema';
 import { Model } from 'mongoose';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import axios from 'axios';
@@ -12,6 +9,8 @@ import { ChatGPTService } from './openai/services/chatgpt.service';
 import { getCheerioAPIFromHTML, isValidUrl, tryReassembleUrl } from './utils/helperFunctions';
 import { OpportunityStatusEnum } from './enums/opportunityStatus.enum';
 import { ExtractorService } from './extractor.service';
+import { OpportunityEventNamesEnum } from './enums/opportunityEventNames.enum';
+import { ExtractionProcessUpdateDto } from './dtos/response/extractionProcessUpdate.dto';
 
 interface ExtractingOpportunitiesQueueItem {
   url: string;
@@ -37,10 +36,8 @@ export class AppService {
     private extractorService: ExtractorService,
   ) {}
 
-  @OnEvent('opportunity.extraction.pool.release')
-  async onOpportunityExtractionPoolRelease(
-    extractedOpportunityDocument?: ExtractedOpportunityDocument,
-  ) {
+  @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease)
+  async onOpportunityExtractionPoolRelease(extractedOpportunityDocument?: ExtractedOpportunityDocument) {
     this.currentRunningExtractionProcesses--;
 
     console.info('Releasing the pool of processes for the next item in the queue... 🏊‍♂️🏊‍♂️🏊‍♂️');
@@ -56,11 +53,8 @@ export class AppService {
     }
   }
 
-  @OnEvent('opportunity.extraction.recurseNeeded')
-  async onOpportunityExtractionRecurseNeeded(
-    relevantLinks: { [p: string]: string[] },
-    extractedOpportunityDocument: ExtractedOpportunityDocument,
-  ) {
+  @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded)
+  async onOpportunityExtractionRecurseNeeded(relevantLinks: { [p: string]: string[] }, extractedOpportunityDocument: ExtractedOpportunityDocument) {
     for (let link of Object.keys(relevantLinks)) {
       if (!isValidUrl(link)) {
         try {
@@ -71,6 +65,7 @@ export class AppService {
       }
       if (this.currentRunningExtractionProcesses >= 10) {
         console.info('The pool of processes is full. Adding the item to the queue... 🚫🏊‍♂️🏊‍♂️🏊‍♂️');
+        this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).queued());
         this.extractingOpportunitiesQueue.push({
           url: link,
           extractingOpportunityDocument: extractedOpportunityDocument,
@@ -79,11 +74,8 @@ export class AppService {
         continue;
       }
 
-      console.info(
-        'Running extraction process for relevant URL immediately... 🏃🏃☑️',
-        link,
-        extractedOpportunityDocument,
-      );
+      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).unqueued());
+      console.info('Running extraction process for relevant URL immediately... 🏃🏃☑️', link, extractedOpportunityDocument);
       this.currentRunningExtractionProcesses++;
       await this.extractorService.extractOpportunity(link, extractedOpportunityDocument);
     }
@@ -106,6 +98,7 @@ export class AppService {
       // TODO: remove this (this is for the demo)
       console.info('Entry found for this URL. Updating the status... 🔄', url);
     }
+    this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url, 10));
 
     let $: cheerio.CheerioAPI;
     let body: cheerio.Cheerio<cheerio.Element>;
@@ -115,11 +108,13 @@ export class AppService {
 
       $ = getCheerioAPIFromHTML(pageHTML.data);
       body = $('body');
+      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url, 5));
     } catch (e) {
       console.info('Error while fetching the page. Marking it as NEEDS_REVIEW... 🚫', url);
       extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
 
       // the page is not accessible.So we need to review it manually
+      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url).finishedUnsuccessfully());
       return;
     }
 
@@ -139,10 +134,12 @@ export class AppService {
         extractingOpportunityDocument: extractedOpportunityDocument,
         isNested: false,
       });
+      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url).queued());
       return;
     }
 
     console.info('Running extraction process immediately... 🏃☑️', url);
+    this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url, 20));
 
     this.currentRunningExtractionProcesses++;
     await this.extractorService.extractOpportunity(url, extractedOpportunityDocument);
@@ -150,15 +147,5 @@ export class AppService {
 
   async getOpportunities(): Promise<ExtractedOpportunity[]> {
     return await this.extractedOpportunityModel.find().exec();
-  }
-
-  async helloMicroservice(): Promise<any> {
-    const opportunity = new this.extractedOpportunityModel({
-      opportunity_provider_name: {
-        contextSlug: 'opportunity_provider_name',
-        fieldType: 'string',
-      },
-    });
-    return await opportunity.save();
   }
 }
