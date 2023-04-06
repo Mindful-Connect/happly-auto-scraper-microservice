@@ -11,6 +11,7 @@ import { OpportunityStatusEnum } from './enums/opportunityStatus.enum';
 import { ExtractorService } from './extractor.service';
 import { OpportunityEventNamesEnum } from './enums/opportunityEventNames.enum';
 import { ExtractionProcessUpdateDto } from './dtos/response/extractionProcessUpdate.dto';
+import { ProcessLogger } from '../app.processLogger';
 
 interface ExtractingOpportunitiesQueueItem {
   url: string;
@@ -34,22 +35,23 @@ export class AppService {
     private chatGPTService: ChatGPTService,
     private eventEmitter: EventEmitter2,
     private extractorService: ExtractorService,
+    private processLogger: ProcessLogger,
   ) {}
 
   @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease)
   async onOpportunityExtractionPoolRelease(extractedOpportunityDocument?: ExtractedOpportunityDocument) {
     this.currentRunningExtractionProcesses--;
 
-    console.info('Releasing the pool of processes for the next item in the queue... 🏊‍♂️🏊‍♂️🏊‍♂️');
+    this.processLogger.info('Releasing the pool of processes for the next item in the queue... 🏊‍♂️🏊‍♂️🏊‍♂️');
 
     if (this.extractingOpportunitiesQueue.length > 0) {
-      console.info('There are still items in the queue. Extracting the next item... 🦾️🔥');
+      this.processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥');
       const nextItem = this.extractingOpportunitiesQueue.shift();
       const syncId = Object.keys(nextItem)[0];
       const { url, extractingOpportunityDocument, isNested } = nextItem[syncId];
       await this.extractorService.extractOpportunity(url, extractingOpportunityDocument, isNested);
     } else {
-      console.info('There are no more items in the queue. yayi 🎉');
+      this.processLogger.info('There are no more items in the queue. yayi 🎉');
     }
   }
 
@@ -64,8 +66,8 @@ export class AppService {
         }
       }
       if (this.currentRunningExtractionProcesses >= 10) {
-        console.info('The pool of processes is full. Adding the item to the queue... 🚫🏊‍♂️🏊‍♂️🏊‍♂️');
-        this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).queued());
+        this.processLogger.info('The pool of processes is full. Adding the item to the queue... 🚫🏊‍♂️🏊‍♂️🏊‍♂️');
+        this.processLogger.broadcast(new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).queued());
         this.extractingOpportunitiesQueue.push({
           url: link,
           extractingOpportunityDocument: extractedOpportunityDocument,
@@ -74,8 +76,9 @@ export class AppService {
         continue;
       }
 
-      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).unqueued());
-      console.info('Running extraction process for relevant URL immediately... 🏃🏃☑️', link, extractedOpportunityDocument);
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).unqueued().addDetail('Running extraction process for relevant URL immediately... 🏃🏃☑️'));
+      this.processLogger.info('Running extraction process for relevant URL immediately... 🏃🏃☑️', link, extractedOpportunityDocument);
+
       this.currentRunningExtractionProcesses++;
       await this.extractorService.extractOpportunity(link, extractedOpportunityDocument);
     }
@@ -86,7 +89,7 @@ export class AppService {
 
     let extractedOpportunityDocument = await this.extractedOpportunityModel.findOne({ url }).exec();
     if (extractedOpportunityDocument === null) {
-      console.info('No entry found for this URL. Creating a new one... 🆕✨', url);
+      this.processLogger.info('No entry found for this URL. Creating a new one... 🆕✨', url);
       extractedOpportunityDocument = new this.extractedOpportunityModel(
         new ExtractedOpportunity({
           url,
@@ -96,9 +99,9 @@ export class AppService {
       await extractedOpportunityDocument.save();
     } else {
       // TODO: remove this (this is for the demo)
-      console.info('Entry found for this URL. Updating the status... 🔄', url);
+      this.processLogger.info('Entry found for this URL. Updating the status... 🔄', url);
     }
-    this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url, 10));
+    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 10));
 
     let $: cheerio.CheerioAPI;
     let body: cheerio.Cheerio<cheerio.Element>;
@@ -108,13 +111,13 @@ export class AppService {
 
       $ = getCheerioAPIFromHTML(pageHTML.data);
       body = $('body');
-      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url, 5));
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
     } catch (e) {
-      console.info('Error while fetching the page. Marking it as NEEDS_REVIEW... 🚫', url);
+      this.processLogger.info('Error while fetching the page. Marking it as NEEDS_REVIEW... 🚫', url);
       extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
 
       // the page is not accessible.So we need to review it manually
-      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url).finishedUnsuccessfully());
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedUnsuccessfully());
       return;
     }
 
@@ -125,21 +128,21 @@ export class AppService {
     extractedOpportunityDocument.clientRenderedPage = clientRenderedPage;
     await extractedOpportunityDocument.save();
 
-    console.info('Checking if this extraction process can be ran immediately... 🏃🔍', url);
+    this.processLogger.info('Checking if this extraction process can be ran immediately... 🏃🔍', url);
     // if there are too many extraction processes running, put it in the queue
     if (this.currentRunningExtractionProcesses >= 10) {
-      console.info('Too many extraction processes running. Putting it in the queue... 📝', url);
+      this.processLogger.info('Too many extraction processes running. Putting it in the queue... 📝', url);
       this.extractingOpportunitiesQueue.push({
         url,
         extractingOpportunityDocument: extractedOpportunityDocument,
         isNested: false,
       });
-      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url).queued());
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).queued());
       return;
     }
 
-    console.info('Running extraction process immediately... 🏃☑️', url);
-    this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, new ExtractionProcessUpdateDto(url, 20));
+    this.processLogger.info('Running extraction process immediately... 🏃☑️', url);
+    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 20).addDetail('Running extraction process immediately... 🏃☑️'));
 
     this.currentRunningExtractionProcesses++;
     await this.extractorService.extractOpportunity(url, extractedOpportunityDocument);

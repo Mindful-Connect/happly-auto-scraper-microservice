@@ -10,6 +10,8 @@ export class ExtractionProcessUpdateDto {
 
   url: string;
 
+  detail?: string;
+
   constructor(url: string, addedProgress?: number, finishedSuccessfully?: boolean) {
     this.url = url;
     this.addedProgress = addedProgress ?? 0;
@@ -40,6 +42,11 @@ export class ExtractionProcessUpdateDto {
   finishedUnsuccessfully() {
     this.isFinished = true;
     this.isFailed = true;
+    return this;
+  }
+
+  addDetail(detail: string) {
+    this.detail = detail;
     return this;
   }
 }

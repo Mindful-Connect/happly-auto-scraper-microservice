@@ -1,12 +1,14 @@
-import { Body, Controller, Get, Post, Query, Sse, MessageEvent } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Sse, MessageEvent, UseGuards } from '@nestjs/common';
 import { AppService } from './app.service';
 import { ExtractedOpportunity } from './schemas/extractedOpportunity.schema';
 import { SubmitURLsRequestDto } from './dtos/request/submitURLs.request.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { fromEvent, map, Observable } from 'rxjs';
 import { OpportunityEventNamesEnum } from './enums/opportunityEventNames.enum';
+import { AuthTokenGuard } from './guards/authToken.guard';
 
 @Controller()
+@UseGuards(AuthTokenGuard)
 export class AppController {
   constructor(private readonly appService: AppService, private eventEmitter: EventEmitter2) {}
 

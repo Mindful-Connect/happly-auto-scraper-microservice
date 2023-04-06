@@ -8,6 +8,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { OpenaiModule } from './openai/openai.module';
 import { ExtractorService } from './extractor.service';
+import { ProcessLogger } from '../app.processLogger';
 
 @Module({
   imports: [
@@ -15,9 +16,9 @@ import { ExtractorService } from './extractor.service';
     ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
-      inject: [ConfigModule],
-      useFactory: async (config: ConfigService) => ({
-        uri: config.get<string>('MONGO_URI'),
+      inject: [ConfigService],
+      useFactory: async (configService: ConfigService) => ({
+        uri: configService.get<string>('MONGO_URI'),
       }),
     }),
     MongooseModule.forFeature([
@@ -27,6 +28,6 @@ import { ExtractorService } from './extractor.service';
     OpenaiModule,
   ],
   controllers: [AppController],
-  providers: [AppService, ExtractorService],
+  providers: [AppService, ExtractorService, ProcessLogger],
 })
 export class AppModule {}

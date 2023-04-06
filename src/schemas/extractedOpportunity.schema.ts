@@ -6,30 +6,48 @@ import { OpportunityStatusEnum } from '../enums/opportunityStatus.enum';
 
 export type ExtractedOpportunityDocument = HydratedDocument<ExtractedOpportunity>;
 
-export const InterestingFields: string[] = [
-  'opportunity_provider_name',
-  'opportunity_issuer_name',
-  'program_name',
-  'program_description',
-  'link_to_application',
-  'application_opening_date',
-  'application_deadline',
-  'opportunity_value_proposition',
-  'opportunitys_grant_types',
-  'eligibility_requirements',
-  'application_country',
-  'province',
-  'municipality',
-  'company_size_requirements',
-  'company_revenue_requirements',
-  'company_reporting_requirements',
-  'industries',
-  'opportunity_subcategories',
-  'keywords',
-  'funding_amounts',
-  'application_process_type',
-  'application_process_time',
-  'opportunity_insights',
+export class InterestingField {
+  shouldOverwrite = false;
+
+  constructor(shouldOverwrite?: boolean) {
+    this.shouldOverwrite = !!shouldOverwrite;
+  }
+}
+
+export const InterestingFields: { [fieldName in string]: InterestingField } = {
+  opportunity_provider_name: new InterestingField(),
+  opportunity_issuer_name: new InterestingField(),
+
+  program_name: new InterestingField(),
+  program_description: new InterestingField(),
+
+  link_to_application: new InterestingField(),
+
+  application_opening_date: new InterestingField(true),
+  application_deadline: new InterestingField(true),
+
+  opportunity_value_proposition: new InterestingField(),
+  opportunitys_grant_types: new InterestingField(),
+  eligibility_requirements: new InterestingField(),
+
+  application_country: new InterestingField(),
+  province: new InterestingField(),
+  municipality: new InterestingField(),
+
+  company_size_requirements: new InterestingField(),
+  company_revenue_requirements: new InterestingField(),
+  company_reporting_requirements: new InterestingField(),
+
+  industries: new InterestingField(),
+  opportunity_subcategories: new InterestingField(),
+  keywords: new InterestingField(),
+
+  funding_amounts: new InterestingField(),
+
+  application_process_type: new InterestingField(),
+  application_process_time: new InterestingField(true),
+
+  opportunity_insights: new InterestingField(),
 
   // TODO add these fields and decide if they are required or not whatever idk. some possible fields to add ???:
 
@@ -39,7 +57,7 @@ export const InterestingFields: string[] = [
   // 'opportunity_open_date',
   // 'opportunity_process_time',
   // 'opportunity_comp_req',
-];
+};
 
 @Schema()
 export class ExtractedOpportunity {
@@ -87,16 +105,10 @@ export class ExtractedOpportunity {
   program_name: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
-  program_description: Field<string> = new Field(
-    'string',
-    'where `program_description` is a description of the program described in 1000 characters (max) or less.',
-  );
+  program_description: Field<string> = new Field('string', 'where `program_description` is a description of the program described in 1000 characters (max) or less.');
 
   @Prop({ type: FieldSchema })
-  link_to_application: Field<string> = new Field(
-    'string',
-    'where `link_to_application` is a link to the application page where applicants can start applying on.',
-  );
+  link_to_application: Field<string> = new Field('string', 'where `link_to_application` is a link to the application page where applicants can start applying on.');
 
   @Prop({ type: FieldSchema })
   application_opening_date: Field<string> = new Field('date');
@@ -108,10 +120,7 @@ export class ExtractedOpportunity {
   opportunity_value_proposition: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
-  opportunitys_grant_types: Field<string[]> = new Field(
-    'string[]',
-    'where `opportunitys_grant_types` is an array of strings, phrasing what types of grants this opportunity gives the applicants.',
-  );
+  opportunitys_grant_types: Field<string[]> = new Field('string[]', 'where `opportunitys_grant_types` is an array of strings, phrasing what types of grants this opportunity gives the applicants.');
 
   @Prop({ type: FieldSchema })
   eligibility_requirements: Field<string[]> = new Field('string[]');
@@ -143,16 +152,10 @@ export class ExtractedOpportunity {
   );
 
   @Prop({ type: FieldSchema })
-  opportunity_subcategories: Field<string[]> = new Field(
-    'string[]',
-    'where `opportunity_subcategories` is an array of strings, phrasing what subcategories this opportunity falls under.',
-  );
+  opportunity_subcategories: Field<string[]> = new Field('string[]', 'where `opportunity_subcategories` is an array of strings, phrasing what subcategories this opportunity falls under.');
 
   @Prop({ type: FieldSchema })
-  keywords: Field<string[]> = new Field(
-    'string[]',
-    'where `keywords` is an array of strings, phrasing what keywords this opportunity falls under.',
-  );
+  keywords: Field<string[]> = new Field('string[]', 'where `keywords` is an array of strings, phrasing what keywords this opportunity falls under.');
 
   @Prop({ type: FieldSchema })
   funding_amounts: Field<number[]> = new Field('number[]');
@@ -164,11 +167,7 @@ export class ExtractedOpportunity {
   );
 
   @Prop({ type: FieldSchema })
-  application_process_time: Field<string> = new Field(
-    'string',
-    'where `application_process_time` is the time it takes to process an application. Possible values are: ' +
-      '"Long", "Moderate", "Quick"',
-  );
+  application_process_time: Field<string> = new Field('string', 'where `application_process_time` is the time it takes to process an application. Possible values are: ' + '"Long", "Moderate", "Quick"');
 
   @Prop({ type: FieldSchema })
   opportunity_insights: Field<string[]> = new Field(
