@@ -1,14 +1,16 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { AppController } from './app/controllers/app.controller';
+import { AppService } from './app/services/app.service';
 import { MongooseModule } from '@nestjs/mongoose';
-import { ExtractedOpportunity, ExtractedOpportunitySchema } from './schemas/extractedOpportunity.schema';
-import { Field, FieldSchema } from './schemas/field.schema';
+import { ExtractedOpportunity, ExtractedOpportunitySchema } from './app/schemas/extractedOpportunity.schema';
+import { Field, FieldSchema } from './app/schemas/field.schema';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { OpenaiModule } from './openai/openai.module';
-import { ExtractorService } from './extractor.service';
-import { ProcessLogger } from '../app.processLogger';
+import { ExtractorService } from './app/services/extractor.service';
+import { ProcessLogger } from './app/services/app.processLogger';
+import { ScheduleModule } from '@nestjs/schedule';
+import { HapplyModule } from './happly/happly.module';
 
 @Module({
   imports: [
@@ -25,7 +27,9 @@ import { ProcessLogger } from '../app.processLogger';
       { name: ExtractedOpportunity.name, schema: ExtractedOpportunitySchema },
       { name: Field.name, schema: FieldSchema },
     ]),
+    ScheduleModule.forRoot(),
     OpenaiModule,
+    HapplyModule,
   ],
   controllers: [AppController],
   providers: [AppService, ExtractorService, ProcessLogger],
