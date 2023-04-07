@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ExtractionProcessUpdateDto } from './src/dtos/response/extractionProcessUpdate.dto';
-import { OpportunityEventNamesEnum } from './src/enums/opportunityEventNames.enum';
+import { ExtractionProcessUpdateDto } from '../dtos/response/extractionProcessUpdate.dto';
+import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()

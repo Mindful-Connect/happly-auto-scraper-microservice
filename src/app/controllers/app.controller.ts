@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Post, Query, Sse, MessageEvent, UseGuards } from '@nestjs/common';
-import { AppService } from './app.service';
-import { ExtractedOpportunity } from './schemas/extractedOpportunity.schema';
-import { SubmitURLsRequestDto } from './dtos/request/submitURLs.request.dto';
+import { AppService } from '../services/app.service';
+import { ExtractedOpportunity } from '../schemas/extractedOpportunity.schema';
+import { SubmitURLsRequestDto } from '../dtos/request/submitURLs.request.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { fromEvent, map, Observable } from 'rxjs';
-import { OpportunityEventNamesEnum } from './enums/opportunityEventNames.enum';
-import { AuthTokenGuard } from './guards/authToken.guard';
+import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
+import { AuthTokenGuard } from '../guards/authToken.guard';
 
 @Controller()
 @UseGuards(AuthTokenGuard)
@@ -17,26 +17,26 @@ export class AppController {
     return await this.appService.getOpportunities();
   }
 
+  // @Post('/opportunities')
+  // async submitURL(@Query('url') url: string): Promise<string> {
+  //   console.info('Submitting a new URL 🔗: ', url);
+  //   this.appService
+  //     .submitQueueItem({ url, name: '', queueId: '' })
+  //     .then()
+  //     .catch(error => {
+  //       this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded);
+  //       console.log(error);
+  //     });
+  //
+  //   return url;
+  // }
+
   @Post('/opportunities')
-  async submitURL(@Query('url') url: string): Promise<string> {
-    console.info('Submitting a new URL 🔗: ', url);
-    this.appService
-      .submitURL(url)
-      .then()
-      .catch(error => {
-        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded);
-        console.log(error);
-      });
-
-    return url;
-  }
-
-  @Post('/opportunities/multiple')
-  async submitURLs(@Body() urlsRequestDto: SubmitURLsRequestDto): Promise<string[]> {
+  async submitURLs(@Body() urlsRequestDto: SubmitURLsRequestDto): Promise<SubmitURLsRequestDto> {
     console.info('Submitting a list of URLs 🔗📃: ', urlsRequestDto);
-    urlsRequestDto.urls.forEach(url => {
+    urlsRequestDto.queueItems.forEach(queueItem => {
       this.appService
-        .submitURL(url)
+        .submitQueueItem(queueItem)
         .then()
         .catch(error => {
           this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease);
@@ -44,7 +44,7 @@ export class AppController {
         });
     });
 
-    return urlsRequestDto.urls;
+    return urlsRequestDto;
   }
 
   @Sse('/opportunities/sse')

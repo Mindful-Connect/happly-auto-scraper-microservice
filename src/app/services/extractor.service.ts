@@ -1,19 +1,19 @@
-import { ExtractedOpportunityDocument, InterestingFields } from './schemas/extractedOpportunity.schema';
+import { ExtractedOpportunityDocument, InterestingFields } from '../schemas/extractedOpportunity.schema';
 import * as cheerio from 'cheerio';
 import axios from 'axios';
 import puppeteer from 'puppeteer';
 import { minify } from 'html-minifier-terser';
 import { encode } from 'gpt-3-encoder';
-import { ChatGPTService } from './openai/services/chatgpt.service';
-import { Field, FieldPossibleTypes } from './schemas/field.schema';
-import { GPTFinishReason } from './openai/openai.types';
-import { OpportunityStatusEnum } from './enums/opportunityStatus.enum';
-import { getCheerioAPIFromHTML, isValidUri } from './utils/helperFunctions';
+import { ChatGPTService } from '../../openai/services/chatgpt.service';
+import { Field, FieldPossibleTypes } from '../schemas/field.schema';
+import { GPTFinishReason } from '../../openai/openai.types';
+import { OpportunityStatusEnum } from '../enums/opportunityStatus.enum';
+import { getCheerioAPIFromHTML, isValidUri } from '../utils/helperFunctions';
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { OpportunityEventNamesEnum } from './enums/opportunityEventNames.enum';
-import { ExtractionProcessUpdateDto } from './dtos/response/extractionProcessUpdate.dto';
-import { ProcessLogger } from '../app.processLogger';
+import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
+import { ExtractionProcessUpdateDto } from '../dtos/response/extractionProcessUpdate.dto';
+import { ProcessLogger } from './app.processLogger';
 
 @Injectable()
 export class ExtractorService {
@@ -21,7 +21,8 @@ export class ExtractorService {
   private extractedOpportunityDocument: ExtractedOpportunityDocument;
   private isNested: boolean;
 
-  private systemMessage = 'Given a chunk of HTML text, extract information asked by the user, and reply only in JSON format. your replies must be fully parsable by JSON.parse method in JavaScript.';
+  private systemMessage =
+    'Given a chunk of HTML text, extract information asked by the user, and reply only in JSON format. your replies must be fully parsable by JSON.parse method in JavaScript.';
 
   private segmentSplittingIdentifiers: string[] = ['<h1', '<h2', '<h3', '<p', '.'];
 
@@ -48,16 +49,17 @@ export class ExtractorService {
 
       $ = getCheerioAPIFromHTML(pageHTML.data);
     }
-    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 15));
+    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
 
     let stripped: string;
     try {
       stripped = await this.getStrippedBodyHTML($);
       this.processLogger.info('Stripped the HTML body... 🫣 to make it shorter for ChatGPT ✨', { stripped });
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 10));
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 10).addDetail('Stripped the HTML body... 🫣'));
     } catch (e) {
       console.error('Could not strip the HTML body... 🫣', e);
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedUnsuccessfully());
+      extractedOpportunityDocument.errorDetails = 'Could not strip the HTML body... 🫣';
+      extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
       this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
       return;
     }
@@ -67,14 +69,21 @@ export class ExtractorService {
     this.processLogger.info('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️', {
       flattened,
     });
+    this.processLogger.broadcast(
+      new ExtractionProcessUpdateDto(url, 3).addDetail('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️'),
+    );
 
     while (flattened.length > 0) {
       const readyToBeSent: string[] = [];
 
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 1));
 
-      while (flattened.length > 0 && ChatGPTService.tokenLimit / 2 >= this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + flattened[0], this.extractedOpportunityDocument)])) {
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 2));
+      while (
+        flattened.length > 0 &&
+        ChatGPTService.tokenLimit / 2 >=
+          this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + flattened[0], this.extractedOpportunityDocument)])
+      ) {
+        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 2).addDetail('Gathering chunks to be sent to ChatGPT... 🚚'));
         readyToBeSent.push(flattened.shift());
       }
 
@@ -96,7 +105,9 @@ export class ExtractorService {
       }
 
       try {
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 10));
+        this.processLogger.broadcast(
+          new ExtractionProcessUpdateDto(url, 10).addDetail('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳'),
+        );
         console.warn('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳');
         const gptResponse = await this.chatGPTService.getResponse({
           model: 'gpt-4-0314',
@@ -126,10 +137,10 @@ export class ExtractorService {
         const finishReason: GPTFinishReason = gptResponse.choices[0].finish_reason;
         if (finishReason !== GPTFinishReason.STOP) {
           this.processLogger.info('ChatGPT did not finish the response... ❌🧠🤖', gptResponse);
+
           this.extractedOpportunityDocument.status = OpportunityStatusEnum.GPT_ERROR;
-          await this.extractedOpportunityDocument.save();
+          this.extractedOpportunityDocument.errorDetails = 'ChatGPT did not finish the response... ❌🧠🤖';
           this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument);
-          this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedUnsuccessfully());
           return;
         }
 
@@ -154,6 +165,10 @@ export class ExtractorService {
         this.processLogger.info('Saved the response in the database... ✅📦🗃️');
       } catch (e) {
         this.processLogger.info('ChatGPT failed to respond... ❌🧠🤖', e);
+
+        this.extractedOpportunityDocument.status = OpportunityStatusEnum.GPT_ERROR;
+        this.extractedOpportunityDocument.errorDetails = 'ChatGPT failed to respond... ❌🧠🤖';
+        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument);
         console.error(e, e.response, e.response.data);
       }
     }
@@ -179,7 +194,7 @@ export class ExtractorService {
 
         this.processLogger.info('Extracted all the fields! 🥳🍾');
 
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedSuccessfully());
+        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedSuccessfully().addDetail('Extracted all the fields! 🥳🍾'));
 
         // emit an event to make manager release another from queue or whatever.
         this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
@@ -188,16 +203,20 @@ export class ExtractorService {
           extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
           await extractedOpportunityDocument.save();
 
-          this.processLogger.info('Some fields are missing but no relevant links were found! needs manual review 😓');
-
-          this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedSuccessfully());
+          this.processLogger.broadcast(
+            new ExtractionProcessUpdateDto(url)
+              .finishedSuccessfully()
+              .addDetail('Some fields are missing but no relevant links were found! needs manual review 😓'),
+          );
 
           this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
         } else {
           extractedOpportunityDocument.status = OpportunityStatusEnum.PARTIALLY_EXTRACTED;
           await extractedOpportunityDocument.save();
 
-          this.processLogger.info('Some fields are missing but relevant links were found! (promising) 🧐🔎');
+          this.processLogger.broadcast(
+            new ExtractionProcessUpdateDto(url).addDetail('Some fields are missing but relevant links were found! (promising) 🧐🔎'),
+          );
 
           this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded, relevantLinks, extractedOpportunityDocument);
         }
@@ -210,14 +229,20 @@ export class ExtractorService {
 
       if (isDoomed) {
         this.processLogger.info('Already nested but still missing field. Going to call it a day for this URL. 🤷');
+        this.processLogger.broadcast(
+          new ExtractionProcessUpdateDto(url)
+            .finishedSuccessfully()
+            .addDetail('Already nested but still missing field. Going to call it a day for this URL. 🤷'),
+        );
         extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
         await extractedOpportunityDocument.save();
       } else {
-        this.processLogger.info('Finally found all the fields after visiting a relevant URL! 🥳🍾');
+        this.processLogger.broadcast(
+          new ExtractionProcessUpdateDto(url).finishedSuccessfully().addDetail('Finally found all the fields after visiting a relevant URL! 🥳🍾'),
+        );
         extractedOpportunityDocument.status = OpportunityStatusEnum.FULLY_EXTRACTED;
       }
 
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedSuccessfully());
       this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
     }
   }
@@ -248,7 +273,11 @@ export class ExtractorService {
       return [htmlChunk];
     }
   }
-  private getUserMessage(chunk: string, extractedOpportunity: ExtractedOpportunityDocument, requestingFields: string[] = this.getRequestingFields(extractedOpportunity)) {
+  private getUserMessage(
+    chunk: string,
+    extractedOpportunity: ExtractedOpportunityDocument,
+    requestingFields: string[] = this.getRequestingFields(extractedOpportunity),
+  ) {
     let whereClauses = '';
     let jsonString = '';
     requestingFields.forEach((fieldName, index) => {
