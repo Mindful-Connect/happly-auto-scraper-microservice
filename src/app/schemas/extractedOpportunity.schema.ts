@@ -48,15 +48,6 @@ export const InterestingFields: { [fieldName in string]: InterestingField } = {
   application_process_time: new InterestingField(true),
 
   opportunity_insights: new InterestingField(),
-
-  // TODO add these fields and decide if they are required or not whatever idk. some possible fields to add ???:
-
-  // 'opportunity_subcategories',
-  // 'opportunity_insights',
-  // 'opportunity_deadlines',
-  // 'opportunity_open_date',
-  // 'opportunity_process_time',
-  // 'opportunity_comp_req',
 };
 
 @Schema()
@@ -73,8 +64,17 @@ export class ExtractedOpportunity {
   @Prop({ default: () => newUUID() })
   syncId: string; // UUID
 
+  @Prop({ type: SchemaMongoose.Types.String, required: true })
+  queueId: string; // UUID
+
   @Prop({ type: null })
   url: string;
+
+  @Prop({ type: SchemaMongoose.Types.String })
+  name: string;
+
+  @Prop({ type: SchemaMongoose.Types.String })
+  errorDetails?: string;
 
   /**
    * Whether the opportunity is a client rendered page or not. If true, puppeteer will be used to
@@ -105,10 +105,16 @@ export class ExtractedOpportunity {
   program_name: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
-  program_description: Field<string> = new Field('string', 'where `program_description` is a description of the program described in 1000 characters (max) or less.');
+  program_description: Field<string> = new Field(
+    'string',
+    'where `program_description` is a description of the program described in 1000 characters (max) or less.',
+  );
 
   @Prop({ type: FieldSchema })
-  link_to_application: Field<string> = new Field('string', 'where `link_to_application` is a link to the application page where applicants can start applying on.');
+  link_to_application: Field<string> = new Field(
+    'string',
+    'where `link_to_application` is a link to the application page where applicants can start applying on.',
+  );
 
   @Prop({ type: FieldSchema })
   application_opening_date: Field<string> = new Field('date');
@@ -120,7 +126,10 @@ export class ExtractedOpportunity {
   opportunity_value_proposition: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
-  opportunitys_grant_types: Field<string[]> = new Field('string[]', 'where `opportunitys_grant_types` is an array of strings, phrasing what types of grants this opportunity gives the applicants.');
+  opportunitys_grant_types: Field<string[]> = new Field(
+    'string[]',
+    'where `opportunitys_grant_types` is an array of strings, phrasing what types of grants this opportunity gives the applicants.',
+  );
 
   @Prop({ type: FieldSchema })
   eligibility_requirements: Field<string[]> = new Field('string[]');
@@ -152,7 +161,10 @@ export class ExtractedOpportunity {
   );
 
   @Prop({ type: FieldSchema })
-  opportunity_subcategories: Field<string[]> = new Field('string[]', 'where `opportunity_subcategories` is an array of strings, phrasing what subcategories this opportunity falls under.');
+  opportunity_subcategories: Field<string[]> = new Field(
+    'string[]',
+    'where `opportunity_subcategories` is an array of strings, phrasing what subcategories this opportunity falls under.',
+  );
 
   @Prop({ type: FieldSchema })
   keywords: Field<string[]> = new Field('string[]', 'where `keywords` is an array of strings, phrasing what keywords this opportunity falls under.');
@@ -167,7 +179,10 @@ export class ExtractedOpportunity {
   );
 
   @Prop({ type: FieldSchema })
-  application_process_time: Field<string> = new Field('string', 'where `application_process_time` is the time it takes to process an application. Possible values are: ' + '"Long", "Moderate", "Quick"');
+  application_process_time: Field<string> = new Field(
+    'string',
+    'where `application_process_time` is the time it takes to process an application. Possible values are: ' + '"Long", "Moderate", "Quick"',
+  );
 
   @Prop({ type: FieldSchema })
   opportunity_insights: Field<string[]> = new Field(
