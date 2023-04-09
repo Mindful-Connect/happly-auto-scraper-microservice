@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
-import { catchError, firstValueFrom, of } from 'rxjs';
-import { AxiosError } from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { ExtractedOpportunityDocument } from '@/app/schemas/extractedOpportunity.schema';
 import { UpdateQueueItemRequestDto } from '../dtos/request/updateQueueItem.request.dto';
