@@ -7,7 +7,6 @@ import { Field, FieldSchema } from './app/schemas/field.schema';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { OpenaiModule } from './openai/openai.module';
-import { ExtractorService } from './app/services/extractor.service';
 import { ProcessLogger } from './app/services/app.processLogger';
 import { ScheduleModule } from '@nestjs/schedule';
 import { HapplyModule } from './happly/happly.module';
@@ -32,6 +31,6 @@ import { HapplyModule } from './happly/happly.module';
     HapplyModule,
   ],
   controllers: [AppController],
-  providers: [AppService, ExtractorService, ProcessLogger],
+  providers: [AppService, ProcessLogger],
 })
 export class AppModule {}

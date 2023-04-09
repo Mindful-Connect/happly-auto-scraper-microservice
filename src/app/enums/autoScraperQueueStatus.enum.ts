@@ -1,7 +1,7 @@
-export enum OpportunityStatusEnum {
+export enum AutoScraperQueueStatusEnum {
   PENDING = 'pending',
   FULLY_EXTRACTED = 'fully_extracted',
   PARTIALLY_EXTRACTED = 'partially_extracted',
-  NEEDS_REVIEW = 'needs_review',
+  FAILED_TO_PROCESS = 'failed_to_process',
   GPT_ERROR = 'gpt_error',
 }

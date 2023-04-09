@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Sse, MessageEvent, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Sse, MessageEvent, UseGuards } from '@nestjs/common';
 import { AppService } from '../services/app.service';
 import { ExtractedOpportunity } from '../schemas/extractedOpportunity.schema';
 import { SubmitURLsRequestDto } from '../dtos/request/submitURLs.request.dto';

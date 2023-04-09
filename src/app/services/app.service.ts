@@ -5,28 +5,23 @@ import { Model } from 'mongoose';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { ChatGPTService } from '../../openai/services/chatgpt.service';
+import { ChatGPTService } from '@/openai/services/chatgpt.service';
 import { getCheerioAPIFromHTML, isValidUrl, tryReassembleUrl } from '../utils/helperFunctions';
-import { OpportunityStatusEnum } from '../enums/opportunityStatus.enum';
+import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
 import { ExtractorService } from './extractor.service';
 import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
 import { ExtractionProcessUpdateDto } from '../dtos/response/extractionProcessUpdate.dto';
 import { ProcessLogger } from './app.processLogger';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { OpportunityPortalService } from '../../happly/services/opportunityPortal.service';
+import { OpportunityPortalService } from '@/happly/services/opportunityPortal.service';
 import { QueueItem } from '../dtos/request/submitURLs.request.dto';
-
-interface ExtractingOpportunitiesQueueItem {
-  url: string;
-  extractingOpportunityDocument: ExtractedOpportunityDocument;
-  isNested: boolean;
-}
+import { ExtractingOpportunitiesQueueItem } from '@/app/models/ExtractingOpportunitiesQueueItem.model';
+import { saveSafely } from '@/app/utils/mongooseHelpers';
 
 @Injectable()
 export class AppService {
   private readonly extractingOpportunitiesQueue: ExtractingOpportunitiesQueueItem[] = [];
-
-  private currentRunningExtractionProcesses = 0;
+  private readonly currentRunningExtractionProcesses: Record<string, ExtractorService> = {};
 
   private rateLimitTokenCounter = 0;
   private rateLimitTokenPerMinute = 40000;
@@ -37,7 +32,6 @@ export class AppService {
     private extractedOpportunityModel: Model<ExtractedOpportunityDocument>,
     private chatGPTService: ChatGPTService,
     private eventEmitter: EventEmitter2,
-    private extractorService: ExtractorService,
     private processLogger: ProcessLogger,
     private opportunityPortalService: OpportunityPortalService,
   ) {}
@@ -58,19 +52,47 @@ export class AppService {
     }
   }
 
-  @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease)
-  async onOpportunityExtractionPoolRelease(extractedOpportunityDocument?: ExtractedOpportunityDocument) {
-    this.currentRunningExtractionProcesses--;
+  @OnEvent(OpportunityEventNamesEnum.ExtractionCompleted)
+  async onExtractionCompleted(extractedOpportunityDocument?: ExtractedOpportunityDocument) {
+    if (!extractedOpportunityDocument)
+      return this.processLogger.error('No extractedOpportunityDocument was provided!', 'extractedOpportunityDocument', extractedOpportunityDocument);
 
-    this.processLogger.info('Releasing the pool of processes for the next item in the queue... 🏊‍♂️🏊‍♂️🏊‍♂️');
+    const anyRelatedProcessQueued = this.extractingOpportunitiesQueue.some(
+      p => p.extractingOpportunityDocument.queueId === extractedOpportunityDocument.queueId,
+    );
+    if (anyRelatedProcessQueued) return;
+
+    const anyRelatedProcessRunning = Object.keys(this.currentRunningExtractionProcesses).some(
+      p =>
+        this.currentRunningExtractionProcesses[p].extractedOpportunityDocument.queueId === extractedOpportunityDocument.queueId &&
+        this.currentRunningExtractionProcesses[p].extractedOpportunityDocument.url !== extractedOpportunityDocument.url, // Only if the url is different (related URLs)
+    );
+    if (anyRelatedProcessRunning) return;
+
+    this.processLogger.broadcast(
+      new ExtractionProcessUpdateDto(extractedOpportunityDocument.url)
+        .finishedSuccessfully()
+        .addDetail('Submitting data to the portal... 🚀 - Ready to be reviewed!'),
+    );
+    await this.opportunityPortalService.submitNewScrapedOpportunity(extractedOpportunityDocument);
+  }
+
+  @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease)
+  async onOpportunityExtractionPoolRelease(extractedOpportunityDocument?: ExtractedOpportunityDocument, processLogger?: ProcessLogger) {
+    processLogger = processLogger || this.processLogger;
+    processLogger.info('Releasing the pool of processes for the next item in the queue... 🏊‍♂️🏊‍♂️🏊‍♂️');
 
     if (extractedOpportunityDocument) {
+      delete this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId];
+
       if (extractedOpportunityDocument.errorDetails) {
-        this.processLogger.broadcast(
+        processLogger.broadcast(
           new ExtractionProcessUpdateDto(extractedOpportunityDocument.url)
             .finishedUnsuccessfully()
             .addDetail(extractedOpportunityDocument.errorDetails),
         );
+        extractedOpportunityDocument.errorDetails = undefined;
+      } else {
       }
 
       // Send the update to the client webhook
@@ -81,31 +103,37 @@ export class AppService {
           console.error('Could not update the opportunity portal with the extracted information! ⚠️', e);
         });
 
-      await extractedOpportunityDocument.save();
+      await saveSafely(extractedOpportunityDocument);
     }
 
     if (this.extractingOpportunitiesQueue.length > 0) {
-      this.processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥');
+      processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥');
       const nextItem = this.extractingOpportunitiesQueue.shift();
-      const syncId = Object.keys(nextItem)[0];
-      const { url, extractingOpportunityDocument, isNested } = nextItem[syncId];
-      await this.extractorService.extractOpportunity(url, extractingOpportunityDocument, isNested);
+
+      const { extractingOpportunityDocument } = nextItem;
+
+      const extractorService = new ExtractorService(this.chatGPTService, this.eventEmitter, processLogger, nextItem);
+      this.currentRunningExtractionProcesses[extractingOpportunityDocument.queueId] = extractorService;
+      await extractorService.extractOpportunity();
     } else {
-      this.processLogger.info('There are no more items in the queue. yayi 🎉');
+      processLogger.info('There are no more items in the queue. yayi 🎉');
     }
   }
 
   @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded)
   async onOpportunityExtractionRecurseNeeded(relevantLinks: { [p: string]: string[] }, extractedOpportunityDocument: ExtractedOpportunityDocument) {
     for (let link of Object.keys(relevantLinks)) {
+      this.processLogger.info(`Found a relevant link: ${link} 🧐`);
       if (!isValidUrl(link)) {
         try {
+          this.processLogger.info(`The link is not a valid URL. Trying to reassemble it... 🧐 ${link} - ${extractedOpportunityDocument.url}`);
           link = tryReassembleUrl(link, extractedOpportunityDocument.url);
         } catch (e) {
+          this.processLogger.error(`Could not reassemble the URL. Skipping... ❌🧐 ${link} - ${extractedOpportunityDocument.url}`);
           continue;
         }
       }
-      if (this.currentRunningExtractionProcesses >= 10) {
+      if (Object.keys(this.currentRunningExtractionProcesses).length >= 10) {
         this.processLogger.info('The pool of processes is full. Adding the item to the queue... 🚫🏊‍♂️🏊‍♂️🏊‍♂️');
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).queued());
         this.extractingOpportunitiesQueue.push({
@@ -123,8 +151,13 @@ export class AppService {
       );
       this.processLogger.info('Running extraction process for relevant URL immediately... 🏃🏃☑️', link, extractedOpportunityDocument);
 
-      this.currentRunningExtractionProcesses++;
-      await this.extractorService.extractOpportunity(link, extractedOpportunityDocument);
+      const extractorService = new ExtractorService(this.chatGPTService, this.eventEmitter, this.processLogger, {
+        url: link,
+        extractingOpportunityDocument: extractedOpportunityDocument,
+        isNested: true,
+      });
+      this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId] = extractorService;
+      await extractorService.extractOpportunity();
     }
   }
 
@@ -143,7 +176,8 @@ export class AppService {
           clientRenderedPage: false,
         }),
       );
-      await extractedOpportunityDocument.save();
+
+      await saveSafely(extractedOpportunityDocument);
     } else {
       // TODO: remove this (this is for the demo)
       this.processLogger.info('Entry found for this URL. Updating the status... 🔄', url);
@@ -160,12 +194,16 @@ export class AppService {
       body = $('body');
       this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
     } catch (e) {
-      this.processLogger.info('Error while fetching the page. Marking it as NEEDS_REVIEW... 🚫', url);
-      extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
+      this.processLogger.info('Error while fetching the page. Marking it as FAILED_TO_PROCESS... 🚫', url);
+      extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.FAILED_TO_PROCESS;
 
       // the page is not accessible.So we need to review it manually
       extractedOpportunityDocument.errorDetails = 'Page is not accessible';
       this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
+
+      setTimeout(() => {
+        extractedOpportunityDocument.deleteOne();
+      }, 5000);
       return;
     }
 
@@ -174,11 +212,11 @@ export class AppService {
     const clientRenderedPage = body.html().length < 200;
 
     extractedOpportunityDocument.clientRenderedPage = clientRenderedPage;
-    await extractedOpportunityDocument.save();
+    await saveSafely(extractedOpportunityDocument);
 
     this.processLogger.info('Checking if this extraction process can be ran immediately... 🏃🔍', url);
     // if there are too many extraction processes running, put it in the queue
-    if (this.currentRunningExtractionProcesses >= 10) {
+    if (Object.keys(this.currentRunningExtractionProcesses).length >= 10) {
       this.processLogger.broadcast(
         new ExtractionProcessUpdateDto(url).queued().addDetail('Too many extraction processes running. Putting it in the queue... 📝'),
       );
@@ -192,8 +230,13 @@ export class AppService {
 
     this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 20).addDetail('Running extraction process immediately... 🏃☑️'));
 
-    this.currentRunningExtractionProcesses++;
-    await this.extractorService.extractOpportunity(url, extractedOpportunityDocument);
+    const extractorService = new ExtractorService(this.chatGPTService, this.eventEmitter, this.processLogger, {
+      url,
+      extractingOpportunityDocument: extractedOpportunityDocument,
+      isNested: false,
+    });
+    this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId] = extractorService;
+    await extractorService.extractOpportunity();
   }
 
   async getOpportunities(): Promise<ExtractedOpportunity[]> {

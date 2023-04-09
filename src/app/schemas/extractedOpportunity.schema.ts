@@ -2,7 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Field, FieldSchema } from './field.schema';
 import { HydratedDocument, Schema as SchemaMongoose } from 'mongoose';
 import { getMySQLDateFormatUTC, newUUID } from '../utils/helperFunctions';
-import { OpportunityStatusEnum } from '../enums/opportunityStatus.enum';
+import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
 
 export type ExtractedOpportunityDocument = HydratedDocument<ExtractedOpportunity>;
 
@@ -85,10 +85,13 @@ export class ExtractedOpportunity {
 
   @Prop({
     type: SchemaMongoose.Types.String,
-    enum: OpportunityStatusEnum,
-    default: OpportunityStatusEnum.PENDING,
+    enum: AutoScraperQueueStatusEnum,
+    default: AutoScraperQueueStatusEnum.PENDING,
   })
-  status: OpportunityStatusEnum;
+  status: AutoScraperQueueStatusEnum;
+
+  @Prop({ type: [SchemaMongoose.Types.String] })
+  logs: string[];
 
   @Prop({ default: getMySQLDateFormatUTC() })
   submittedAt: string;

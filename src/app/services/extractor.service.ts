@@ -4,34 +4,44 @@ import axios from 'axios';
 import puppeteer from 'puppeteer';
 import { minify } from 'html-minifier-terser';
 import { encode } from 'gpt-3-encoder';
-import { ChatGPTService } from '../../openai/services/chatgpt.service';
+import { ChatGPTService } from '@/openai/services/chatgpt.service';
 import { Field, FieldPossibleTypes } from '../schemas/field.schema';
-import { GPTFinishReason } from '../../openai/openai.types';
-import { OpportunityStatusEnum } from '../enums/opportunityStatus.enum';
+import { GPTFinishReason } from '@/openai/openai.types';
+import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
 import { getCheerioAPIFromHTML, isValidUri } from '../utils/helperFunctions';
-import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
 import { ExtractionProcessUpdateDto } from '../dtos/response/extractionProcessUpdate.dto';
 import { ProcessLogger } from './app.processLogger';
+import { ExtractingOpportunitiesQueueItem } from '@/app/models/ExtractingOpportunitiesQueueItem.model';
+import { saveSafely } from '@/app/utils/mongooseHelpers';
 
-@Injectable()
 export class ExtractorService {
-  private url: string;
-  private extractedOpportunityDocument: ExtractedOpportunityDocument;
-  private isNested: boolean;
+  public url: string;
+  public extractedOpportunityDocument: ExtractedOpportunityDocument;
+  public isNested: boolean;
 
   private systemMessage =
     'Given a chunk of HTML text, extract information asked by the user, and reply only in JSON format. your replies must be fully parsable by JSON.parse method in JavaScript.';
 
   private segmentSplittingIdentifiers: string[] = ['<h1', '<h2', '<h3', '<p', '.'];
 
-  constructor(private chatGPTService: ChatGPTService, private eventEmitter: EventEmitter2, private processLogger: ProcessLogger) {}
+  constructor(
+    private chatGPTService: ChatGPTService,
+    private eventEmitter: EventEmitter2,
+    public processLogger: ProcessLogger,
+    extractingOpportunitiesQueueItem: ExtractingOpportunitiesQueueItem,
+  ) {
+    this.url = extractingOpportunitiesQueueItem.url;
+    this.extractedOpportunityDocument = extractingOpportunitiesQueueItem.extractingOpportunityDocument;
+    this.isNested = extractingOpportunitiesQueueItem.isNested;
+  }
 
-  async extractOpportunity(url: string, extractedOpportunityDocument: ExtractedOpportunityDocument, isNested = false) {
-    this.url = url;
-    this.extractedOpportunityDocument = extractedOpportunityDocument;
-    this.isNested = isNested;
+  async extractOpportunity() {
+    // Assigning the `this.extractedOpportunityDocument` to a variable to make it easier to access
+    const extractedOpportunityDocument = this.extractedOpportunityDocument;
+
+    this.processLogger.extractedOpportunityDocument = extractedOpportunityDocument;
 
     let $: cheerio.CheerioAPI;
     if (this.extractedOpportunityDocument.clientRenderedPage) {
@@ -49,64 +59,63 @@ export class ExtractorService {
 
       $ = getCheerioAPIFromHTML(pageHTML.data);
     }
-    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
+    this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 5));
 
     let stripped: string;
     try {
       stripped = await this.getStrippedBodyHTML($);
       this.processLogger.info('Stripped the HTML body... 🫣 to make it shorter for ChatGPT ✨', { stripped });
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 10).addDetail('Stripped the HTML body... 🫣'));
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 10).addDetail('Stripped the HTML body... 🫣'));
     } catch (e) {
       console.error('Could not strip the HTML body... 🫣', e);
-      extractedOpportunityDocument.errorDetails = 'Could not strip the HTML body... 🫣';
-      extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
-      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
+      this.extractedOpportunityDocument.errorDetails = 'Could not strip the HTML body... 🫣';
+      this.extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.FAILED_TO_PROCESS;
+      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument, this.processLogger);
       return;
     }
 
-    const chunks = this.segmentTheChunk(stripped, this.extractedOpportunityDocument);
+    const chunks = this.segmentTheChunk(stripped);
     const flattened = chunks.flat(<20>Infinity).filter(c => c !== '') as string[];
     this.processLogger.info('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️', {
       flattened,
     });
     this.processLogger.broadcast(
-      new ExtractionProcessUpdateDto(url, 3).addDetail('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️'),
+      new ExtractionProcessUpdateDto(this.url, 3).addDetail('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️'),
     );
 
     while (flattened.length > 0) {
       const readyToBeSent: string[] = [];
 
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 1));
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1));
 
       while (
         flattened.length > 0 &&
-        ChatGPTService.tokenLimit / 2 >=
-          this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + flattened[0], this.extractedOpportunityDocument)])
+        ChatGPTService.tokenLimit / 2 >= this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + flattened[0])])
       ) {
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 2).addDetail('Gathering chunks to be sent to ChatGPT... 🚚'));
+        this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 2).addDetail('Gathering chunks to be sent to ChatGPT... 🚚'));
         readyToBeSent.push(flattened.shift());
       }
 
       this.processLogger.info('Gathering chunks to be sent to ChatGPT... 🚚', { readyToBeSent });
 
-      const userMessage = this.getUserMessage(readyToBeSent.join(''), this.extractedOpportunityDocument);
+      const userMessage = this.getUserMessage(readyToBeSent.join(''));
 
       const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
 
-      const requestingFields = this.getRequestingFields(this.extractedOpportunityDocument);
+      const requestingFields = this.getRequestingFields();
       this.processLogger.info('Deciding which missing fields to request... 🔍📦', { requestingFields });
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 5));
 
       if (requestingFields.length === 0) {
         this.processLogger.info('No more missing fields to request... 📦📦📦');
-        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument);
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedSuccessfully());
+        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument, this.processLogger);
+        this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url).finishedSuccessfully());
         return;
       }
 
       try {
         this.processLogger.broadcast(
-          new ExtractionProcessUpdateDto(url, 10).addDetail('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳'),
+          new ExtractionProcessUpdateDto(this.url, 10).addDetail('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳'),
         );
         console.warn('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳');
         const gptResponse = await this.chatGPTService.getResponse({
@@ -138,9 +147,9 @@ export class ExtractorService {
         if (finishReason !== GPTFinishReason.STOP) {
           this.processLogger.info('ChatGPT did not finish the response... ❌🧠🤖', gptResponse);
 
-          this.extractedOpportunityDocument.status = OpportunityStatusEnum.GPT_ERROR;
+          this.extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
           this.extractedOpportunityDocument.errorDetails = 'ChatGPT did not finish the response... ❌🧠🤖';
-          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument);
+          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument, this.processLogger);
           return;
         }
 
@@ -150,8 +159,8 @@ export class ExtractorService {
         Object.keys(response).forEach(key => {
           const value: { data: any; relevant_link: string } = response[key];
           if (requestingFields.includes(key)) {
-            this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 1));
-            this.extractedOpportunityDocument.status = OpportunityStatusEnum.PARTIALLY_EXTRACTED;
+            this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1));
+            this.extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.PARTIALLY_EXTRACTED;
 
             const field = this.extractedOpportunityDocument[key] as Field<FieldPossibleTypes>;
             field.data = value.data;
@@ -160,25 +169,25 @@ export class ExtractorService {
         });
 
         // save in db
-        await this.extractedOpportunityDocument.save();
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5).addDetail('Saved the response in the database... ✅📦🗃️'));
+        await saveSafely(extractedOpportunityDocument);
+        this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 5).addDetail('Saved the response in the database... ✅📦🗃️'));
         this.processLogger.info('Saved the response in the database... ✅📦🗃️');
       } catch (e) {
         this.processLogger.info('ChatGPT failed to respond... ❌🧠🤖', e);
 
-        this.extractedOpportunityDocument.status = OpportunityStatusEnum.GPT_ERROR;
+        this.extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
         this.extractedOpportunityDocument.errorDetails = 'ChatGPT failed to respond... ❌🧠🤖';
-        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument);
+        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument, this.processLogger);
         console.error(e, e.response, e.response.data);
       }
     }
 
-    const anyOtherRequestingFields = this.getRequestingFields(extractedOpportunityDocument);
+    const anyOtherRequestingFields = this.getRequestingFields();
 
-    if (!isNested) {
+    if (!this.isNested) {
       const relevantLinks: { [key in string]: string[] } = {};
       anyOtherRequestingFields.forEach(fieldName => {
-        const field = extractedOpportunityDocument[fieldName] as Field<FieldPossibleTypes>;
+        const field = this.extractedOpportunityDocument[fieldName] as Field<FieldPossibleTypes>;
         if (isValidUri(field.relevantLink)) {
           if (relevantLinks[field.relevantLink]) {
             relevantLinks[field.relevantLink].push(fieldName);
@@ -189,33 +198,34 @@ export class ExtractorService {
       });
 
       if (anyOtherRequestingFields.length === 0) {
-        extractedOpportunityDocument.status = OpportunityStatusEnum.FULLY_EXTRACTED;
-        await extractedOpportunityDocument.save();
+        extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.FULLY_EXTRACTED;
+        await saveSafely(extractedOpportunityDocument);
 
         this.processLogger.info('Extracted all the fields! 🥳🍾');
 
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(url).finishedSuccessfully().addDetail('Extracted all the fields! 🥳🍾'));
+        this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url).finishedSuccessfully().addDetail('Extracted all the fields! 🥳🍾'));
 
         // emit an event to make manager release another from queue or whatever.
         this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
       } else {
         if (Object.keys(relevantLinks).length < 1) {
-          extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
-          await extractedOpportunityDocument.save();
+          extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.PARTIALLY_EXTRACTED;
+          await saveSafely(extractedOpportunityDocument);
 
           this.processLogger.broadcast(
-            new ExtractionProcessUpdateDto(url)
+            new ExtractionProcessUpdateDto(this.url)
               .finishedSuccessfully()
-              .addDetail('Some fields are missing but no relevant links were found! needs manual review 😓'),
+              .addDetail('Some fields are missing but no relevant links were found! needs manual review 📝'),
           );
 
-          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
+          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
+          this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionCompleted, extractedOpportunityDocument);
         } else {
-          extractedOpportunityDocument.status = OpportunityStatusEnum.PARTIALLY_EXTRACTED;
-          await extractedOpportunityDocument.save();
+          extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.PARTIALLY_EXTRACTED;
+          await saveSafely(extractedOpportunityDocument);
 
           this.processLogger.broadcast(
-            new ExtractionProcessUpdateDto(url).addDetail('Some fields are missing but relevant links were found! (promising) 🧐🔎'),
+            new ExtractionProcessUpdateDto(this.url).addDetail('Some fields are missing but relevant links were found! (promising) 🧐🔎'),
           );
 
           this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded, relevantLinks, extractedOpportunityDocument);
@@ -230,20 +240,24 @@ export class ExtractorService {
       if (isDoomed) {
         this.processLogger.info('Already nested but still missing field. Going to call it a day for this URL. 🤷');
         this.processLogger.broadcast(
-          new ExtractionProcessUpdateDto(url)
+          new ExtractionProcessUpdateDto(this.url)
             .finishedSuccessfully()
             .addDetail('Already nested but still missing field. Going to call it a day for this URL. 🤷'),
         );
-        extractedOpportunityDocument.status = OpportunityStatusEnum.NEEDS_REVIEW;
-        await extractedOpportunityDocument.save();
+        extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.PARTIALLY_EXTRACTED;
       } else {
         this.processLogger.broadcast(
-          new ExtractionProcessUpdateDto(url).finishedSuccessfully().addDetail('Finally found all the fields after visiting a relevant URL! 🥳🍾'),
+          new ExtractionProcessUpdateDto(this.url)
+            .finishedSuccessfully()
+            .addDetail('Finally found all the fields after visiting a relevant URL! 🥳🍾'),
         );
-        extractedOpportunityDocument.status = OpportunityStatusEnum.FULLY_EXTRACTED;
+        extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.FULLY_EXTRACTED;
       }
 
-      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
+      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
+      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionCompleted, extractedOpportunityDocument);
+
+      await saveSafely(extractedOpportunityDocument);
     }
   }
 
@@ -256,32 +270,28 @@ export class ExtractorService {
     return { success, segments: identifier === '<h1' ? segments.reverse() : segments };
   }
 
-  private segmentTheChunk(htmlChunk: string, extractedOpportunityDocument: ExtractedOpportunityDocument, separatorIndex = 0): NestedStringArray {
+  private segmentTheChunk(htmlChunk: string, separatorIndex = 0): NestedStringArray {
     // should i chunk it more?
-    const numOfTokens = this.countTokens([this.systemMessage, this.getUserMessage(htmlChunk, extractedOpportunityDocument)]);
+    const numOfTokens = this.countTokens([this.systemMessage, this.getUserMessage(htmlChunk)]);
     if (ChatGPTService.tokenLimit / 2 < numOfTokens) {
       const nextSeparator = this.segmentSplittingIdentifiers.length - 1 === separatorIndex ? separatorIndex : separatorIndex + 1;
       const { success, segments } = this.segmentMethod(htmlChunk, this.segmentSplittingIdentifiers[separatorIndex]);
       if (success) {
-        return segments.map(s => this.segmentTheChunk(s, extractedOpportunityDocument, nextSeparator));
+        return segments.map(s => this.segmentTheChunk(s, nextSeparator));
       }
       if (nextSeparator === separatorIndex) {
         return [''];
       }
-      return this.segmentTheChunk(htmlChunk, extractedOpportunityDocument, nextSeparator);
+      return this.segmentTheChunk(htmlChunk, nextSeparator);
     } else {
       return [htmlChunk];
     }
   }
-  private getUserMessage(
-    chunk: string,
-    extractedOpportunity: ExtractedOpportunityDocument,
-    requestingFields: string[] = this.getRequestingFields(extractedOpportunity),
-  ) {
+  private getUserMessage(chunk: string, requestingFields: string[] = this.getRequestingFields()) {
     let whereClauses = '';
     let jsonString = '';
     requestingFields.forEach((fieldName, index) => {
-      const field = extractedOpportunity[fieldName] as Field<FieldPossibleTypes>;
+      const field = this.extractedOpportunityDocument[fieldName] as Field<FieldPossibleTypes>;
       if (field.contextAwarenessHelper) {
         whereClauses += `${field.contextAwarenessHelper}\n`;
       }
@@ -311,14 +321,20 @@ ${whereClauses}
 }`;
   }
 
-  private getRequestingFields(extractedOpportunityDocument: ExtractedOpportunityDocument): string[] {
+  private getRequestingFields(): string[] {
     return Object.keys(InterestingFields).filter(f => {
       // return value -> false: not requesting (it's filled) - true: requesting (it's missing)
-      const field = extractedOpportunityDocument[f] as Field<FieldPossibleTypes>;
+      const field = this.extractedOpportunityDocument[f] as Field<FieldPossibleTypes>;
       // if (isValidUrl(field.relevantLink)) {
       //   return false;
       // }
-      if (field.data === null) {
+      if (
+        field.data === null ||
+        field.data === undefined ||
+        (typeof field.data === 'string' && field.data.length < 1) ||
+        (Array.isArray(field.data) && field.data.length < 1) ||
+        (typeof field.data === 'number' && isNaN(field.data))
+      ) {
         return true;
       }
       if (!InterestingFields[f].shouldOverwrite) {
