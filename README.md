@@ -39,8 +39,10 @@ it will not scrape the relevant link from the relevant link since it is already 
 - ChatGPT API key
 
 ### Steps
-~~1. Clone the repository.~~
+1. Clone the repository and `cd` into it.
 ```bash
+git clone https://github.com/Mindful-Connect/happly-auto-scraper-microservice.git
+cd happly-auto-scraper-microservice
 ```
 
 2. Install the dependencies.
@@ -77,6 +79,12 @@ npm run start:prod
 ```
 
 ## TODO
+- [ ] plan for rescraping the opportunities. (maybe add a button in the admin panel that says "rescrape all" and then starts rescraping everything again)
+- [ ] make sure the application link will be shown as full link if GPT sent a URI fragment.
+- [ ] extracting province abbreviation is not stable
+- [ ] deadline and open date are inconsistent when not found.
+- [x] make sure not to add duplicates (test this)
+- [ ] add a few other fields (app_req, business_type_req, role_type_tags, role_length_tags, project_activities_tags, project_length_tags)
 - [ ] Make sure all the fields are scraped correctly.
 
 ## Tech Stacks
