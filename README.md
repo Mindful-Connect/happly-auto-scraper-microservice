@@ -86,6 +86,7 @@ npm run start:prod
 - [x] make sure not to add duplicates (test this)
 - [ ] add a few other fields (app_req, business_type_req, role_type_tags, role_length_tags, project_activities_tags, project_length_tags)
 - [ ] Make sure all the fields are scraped correctly.
+- [ ] Add more inline comments in the code
 
 ## Tech Stacks
 ![img.png](docs/assets/tech-stacks.png)
