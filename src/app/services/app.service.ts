@@ -57,6 +57,9 @@ export class AppService {
     if (!extractedOpportunityDocument)
       return this.processLogger.error('No extractedOpportunityDocument was provided!', 'extractedOpportunityDocument', extractedOpportunityDocument);
 
+    // wait a bit to make sure async processes are done
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
     const anyRelatedProcessQueued = this.extractingOpportunitiesQueue.some(
       p => p.extractingOpportunityDocument.queueId === extractedOpportunityDocument.queueId,
     );
@@ -84,6 +87,12 @@ export class AppService {
 
     if (extractedOpportunityDocument) {
       delete this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId];
+      processLogger.info(
+        'Removed the process from the current running processes list! 🗑️',
+        'queueId',
+        extractedOpportunityDocument.queueId,
+        this.currentRunningExtractionProcesses,
+      );
 
       if (extractedOpportunityDocument.errorDetails) {
         processLogger.broadcast(
@@ -107,14 +116,18 @@ export class AppService {
     }
 
     if (this.extractingOpportunitiesQueue.length > 0) {
-      processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥');
+      processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥', this.extractingOpportunitiesQueue);
       const nextItem = this.extractingOpportunitiesQueue.shift();
 
       const { extractingOpportunityDocument } = nextItem;
 
       const extractorService = new ExtractorService(this.chatGPTService, this.eventEmitter, processLogger, nextItem);
       this.currentRunningExtractionProcesses[extractingOpportunityDocument.queueId] = extractorService;
-      await extractorService.extractOpportunity();
+      extractorService
+        .extractOpportunity()
+        .catch(() =>
+          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractingOpportunityDocument, processLogger),
+        );
     } else {
       processLogger.info('There are no more items in the queue. yayi 🎉');
     }
@@ -122,19 +135,25 @@ export class AppService {
 
   @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded)
   async onOpportunityExtractionRecurseNeeded(relevantLinks: { [p: string]: string[] }, extractedOpportunityDocument: ExtractedOpportunityDocument) {
+    let anyRelevantLinkFound = false;
     for (let link of Object.keys(relevantLinks)) {
       this.processLogger.info(`Found a relevant link: ${link} 🧐`);
       if (!isValidUrl(link)) {
         try {
           this.processLogger.info(`The link is not a valid URL. Trying to reassemble it... 🧐 ${link} - ${extractedOpportunityDocument.url}`);
-          link = tryReassembleUrl(link, extractedOpportunityDocument.url);
+          link = tryReassembleUrl(extractedOpportunityDocument.url, link);
         } catch (e) {
           this.processLogger.error(`Could not reassemble the URL. Skipping... ❌🧐 ${link} - ${extractedOpportunityDocument.url}`);
           continue;
         }
       }
+      anyRelevantLinkFound = true;
       if (Object.keys(this.currentRunningExtractionProcesses).length >= 10) {
-        this.processLogger.info('The pool of processes is full. Adding the item to the queue... 🚫🏊‍♂️🏊‍♂️🏊‍♂️');
+        this.processLogger.info(
+          'The pool of processes is full. Adding the item to the queue... 🚫🏊‍♂️🏊‍♂️🏊‍♂️',
+          this.currentRunningExtractionProcesses,
+          this.extractingOpportunitiesQueue,
+        );
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).queued());
         this.extractingOpportunitiesQueue.push({
           url: link,
@@ -157,7 +176,20 @@ export class AppService {
         isNested: true,
       });
       this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId] = extractorService;
-      await extractorService.extractOpportunity();
+      extractorService
+        .extractOpportunity()
+        .catch(() =>
+          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger),
+        );
+    }
+
+    if (!anyRelevantLinkFound) {
+      this.processLogger.broadcast(
+        new ExtractionProcessUpdateDto(extractedOpportunityDocument.url)
+          .finishedSuccessfully()
+          .addDetail('Relevant links found in the page are all broken 🥲🚫'),
+      );
+      this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionCompleted, extractedOpportunityDocument);
     }
   }
 
@@ -217,6 +249,7 @@ export class AppService {
     this.processLogger.info('Checking if this extraction process can be ran immediately... 🏃🔍', url);
     // if there are too many extraction processes running, put it in the queue
     if (Object.keys(this.currentRunningExtractionProcesses).length >= 10) {
+      this.processLogger.debug(this.currentRunningExtractionProcesses);
       this.processLogger.broadcast(
         new ExtractionProcessUpdateDto(url).queued().addDetail('Too many extraction processes running. Putting it in the queue... 📝'),
       );
@@ -236,7 +269,9 @@ export class AppService {
       isNested: false,
     });
     this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId] = extractorService;
-    await extractorService.extractOpportunity();
+    extractorService.extractOpportunity().catch(() => {
+      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
+    });
   }
 
   async getOpportunities(): Promise<ExtractedOpportunity[]> {

@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Field, FieldSchema } from './field.schema';
 import { HydratedDocument, Schema as SchemaMongoose } from 'mongoose';
-import { getMySQLDateFormatUTC, newUUID } from '../utils/helperFunctions';
+import { getMySQLDateFormatUTC, newUUID } from '@/app/helpers/helperFunctions';
 import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
 
 export type ExtractedOpportunityDocument = HydratedDocument<ExtractedOpportunity>;
@@ -9,12 +9,30 @@ export type ExtractedOpportunityDocument = HydratedDocument<ExtractedOpportunity
 export class InterestingField {
   shouldOverwrite = false;
 
+  stringify: (fieldValue: any[] | string | number) => string = (f: string) => f;
+
   constructor(shouldOverwrite?: boolean) {
     this.shouldOverwrite = !!shouldOverwrite;
   }
+
+  setToString(toString: (fieldValue: any) => string) {
+    this.stringify = toString;
+    return this;
+  }
 }
 
-export const InterestingFields: { [fieldName in string]: InterestingField } = {
+// TODO: use a decorator to define `InterestingFields` instead of making an object for it manually.
+// export const InterestingFieldDecorator = ({
+//   shouldOverwrite = false,
+//   toString,
+// }: {
+//   shouldOverwrite?: boolean;
+//   toString?: (fieldValue: any[]) => string;
+// }) => {
+//   return Reflect.metadata('InterestingField', new InterestingField(shouldOverwrite).setToString(toString));
+// };
+
+export const InterestingFields = {
   opportunity_provider_name: new InterestingField(),
   opportunity_issuer_name: new InterestingField(),
 
@@ -26,29 +44,48 @@ export const InterestingFields: { [fieldName in string]: InterestingField } = {
   application_opening_date: new InterestingField(true),
   application_deadline: new InterestingField(true),
 
+  company_eligibility_requirements: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
+  eligible_activities: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
+
+  role_eligibility_requirements: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
+  candidate_requirement_tags: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
+
   opportunity_value_proposition: new InterestingField(),
-  opportunitys_grant_types: new InterestingField(),
-  eligibility_requirements: new InterestingField(),
+  opportunitys_grant_types: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ type: f })) || [])),
+  eligibility_requirements: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
+  project_eligibility: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
 
   application_country: new InterestingField(),
-  province: new InterestingField(),
-  municipality: new InterestingField(),
+  provinces: new InterestingField(),
+  provinces_abbreviations: new InterestingField(),
+  municipalities: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
 
   company_size_requirements: new InterestingField(),
   company_revenue_requirements: new InterestingField(),
+
+  ineligibility_reasons: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
+
+  cash_upfront: new InterestingField(),
+
   company_reporting_requirements: new InterestingField(),
 
-  industries: new InterestingField(),
-  opportunity_subcategories: new InterestingField(),
-  keywords: new InterestingField(),
+  industries: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
 
-  funding_amounts: new InterestingField(),
+  opportunity_categories: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
+  opportunity_subcategories: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
+  keywords: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
 
-  application_process_type: new InterestingField(),
+  funding_amount: new InterestingField().setToString(f => f?.toString() ?? ''),
+
+  application_process_type: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ type: f })) || [])),
   application_process_time: new InterestingField(true),
 
-  opportunity_insights: new InterestingField(),
+  opportunity_insights: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ detail: f })) || [])),
 };
+
+export type InterestingFieldsKeys = keyof typeof InterestingFields;
+
+export const interestingFields = InterestingFields as Record<InterestingFieldsKeys, InterestingField>;
 
 @Schema()
 export class ExtractedOpportunity {
@@ -116,7 +153,7 @@ export class ExtractedOpportunity {
   @Prop({ type: FieldSchema })
   link_to_application: Field<string> = new Field(
     'string',
-    'where `link_to_application` is a link to the application page where applicants can start applying on.',
+    'where `link_to_application` is a link to the application page where applicants can start applying on. empty string if not available.',
   );
 
   @Prop({ type: FieldSchema })
@@ -135,22 +172,81 @@ export class ExtractedOpportunity {
   );
 
   @Prop({ type: FieldSchema })
-  eligibility_requirements: Field<string[]> = new Field('string[]');
+  company_eligibility_requirements: Field<string[]> = new Field(
+    'string[]',
+    'where `company_eligibility_requirements` is an array of strings,' +
+      ' phrasing what the eligibility requirements are for the company applying for this opportunity',
+  );
+
+  @Prop({ type: FieldSchema })
+  role_eligibility_requirements: Field<string[]> = new Field(
+    'string[]',
+    'where `role_eligibility_requirements` is an array of strings,' +
+      ' phrasing who can be eligible and what advantages there are for them, applying for this opportunity.',
+  );
+
+  @Prop({ type: FieldSchema })
+  candidate_requirement_tags: Field<string[]> = new Field(
+    'string[]',
+    'where `candidate_requirement_tags` is an array of strings, ' +
+      'indicating some tags that describe the candidate who is eligible for this opportunity.',
+  );
+
+  @Prop({ type: FieldSchema })
+  eligibility_requirements: Field<string[]> = new Field(
+    'string[]',
+    'where `eligibility_requirements` is an array of strings, phrasing what the eligibility requirements are for this opportunity.',
+  );
+
+  @Prop({ type: FieldSchema })
+  eligible_activities: Field<string[]> = new Field(
+    'string[]',
+    'where `eligible_activities` is an array of strings, phrasing what the eligible activities are for this opportunity.',
+  );
+
+  @Prop({ type: FieldSchema })
+  project_eligibility: Field<string[]> = new Field(
+    'string[]',
+    'where `project_eligibility` is an array of strings, phrasing what types of project are eligible for this opportunity.',
+  );
 
   @Prop({ type: FieldSchema })
   application_country: Field<string> = new Field();
 
   @Prop({ type: FieldSchema })
-  province: Field<string> = new Field();
+  provinces: Field<string[]> = new Field('string[]');
+  @Prop({ type: FieldSchema })
+  provinces_abbreviations: Field<string[]> = new Field(
+    'string[]',
+    'where `provinces_abbreviations` is an array of strings based on `provinces`, phrasing the alpha code abbreviations of the provinces. e.g. `["ON", "QC"]` based on the `provinces` field.',
+  );
 
   @Prop({ type: FieldSchema })
-  municipality: Field<string> = new Field();
+  municipalities: Field<string[]> = new Field('string[]');
 
   @Prop({ type: FieldSchema })
-  company_size_requirements: Field<number[]> = new Field('number[]');
+  company_size_requirements: Field<number[]> = new Field(
+    'number[]',
+    'where `company_size_requirements` is an array of two numbers, phrasing the minimum and maximum number of employees the company should have.',
+  );
 
   @Prop({ type: FieldSchema })
-  company_revenue_requirements: Field<string> = new Field();
+  company_revenue_requirements: Field<string[]> = new Field(
+    'string[]',
+    'where `company_revenue_requirements` is an array of two strings, phrasing the minimum and maximum revenue the company should have.',
+  );
+
+  @Prop({ type: FieldSchema })
+  ineligibility_reasons: Field<string[]> = new Field(
+    'string[]',
+    'where `ineligibility_reasons` is an array of strings, identifying the reasons for disqualification pertaining to this opportunity.',
+  );
+
+  @Prop({ type: FieldSchema })
+  cash_upfront: Field<boolean | null> = new Field(
+    'boolean',
+    'where `cash_upfront` is a boolean or null for "not enough information", indicating whether the opportunity gives cash upfront or not.',
+  );
 
   @Prop({ type: FieldSchema })
   company_reporting_requirements: Field<string[]> = new Field('string[]');
@@ -164,6 +260,13 @@ export class ExtractedOpportunity {
   );
 
   @Prop({ type: FieldSchema })
+  opportunity_categories: Field<string[]> = new Field(
+    'string[]',
+    'where `opportunity_categories` is an array of strings, phrasing what categories this opportunity falls under.' +
+      ' Examples are: "First come first serve grants", "Hiring contractors or freelancers (not on payroll)", "A marketing project", etc.',
+  );
+
+  @Prop({ type: FieldSchema })
   opportunity_subcategories: Field<string[]> = new Field(
     'string[]',
     'where `opportunity_subcategories` is an array of strings, phrasing what subcategories this opportunity falls under.',
@@ -173,7 +276,7 @@ export class ExtractedOpportunity {
   keywords: Field<string[]> = new Field('string[]', 'where `keywords` is an array of strings, phrasing what keywords this opportunity falls under.');
 
   @Prop({ type: FieldSchema })
-  funding_amounts: Field<number[]> = new Field('number[]');
+  funding_amount: Field<number> = new Field('number');
 
   @Prop({ type: FieldSchema })
   application_process_type: Field<string[]> = new Field(

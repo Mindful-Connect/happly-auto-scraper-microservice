@@ -5,9 +5,9 @@ import { HydratedDocument, Schema as SchemaMongoose } from 'mongoose';
  * The possible types of the data extracted by chatGPT. This is used to
  * tell chatGPT what type of data to expect. (e.g. string, number, etc.)
  */
-export type FieldPossibleTypes = string | string[] | number | number[] | null;
+export type FieldPossibleTypes = string | string[] | number | number[] | boolean | null;
 
-export type FieldPossibleTypesString = 'string' | 'string[]' | 'number' | 'number[]' | 'date';
+export type FieldPossibleTypesString = 'string' | 'string[]' | 'number' | 'number[]' | 'date' | 'boolean';
 
 export type FieldDocument = HydratedDocument<Field>;
 

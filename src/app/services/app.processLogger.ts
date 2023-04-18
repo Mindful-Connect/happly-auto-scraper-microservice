@@ -18,7 +18,7 @@ export class ProcessLogger {
   }
 
   broadcast(payload: ExtractionProcessUpdateDto) {
-    if (payload.detail) this.info(payload.detail);
+    if (payload.detail) this.debug(payload.detail);
 
     this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, payload);
   }
@@ -32,5 +32,9 @@ export class ProcessLogger {
 
   error(...message: any[]) {
     console.error(...message);
+  }
+
+  debug(...message: any[]) {
+    console.debug(...message);
   }
 }
