@@ -1,16 +1,16 @@
+# Opportunity Auto Scraper Microservice
+The Opportunity Auto Scraper Microservice is used to scrape funding opportunities given valid URL(s).
+It is used to scrape using ChatGPT and store the extracted information in a MongoDB database and to provide
+an API to the admin portal to fetch the scraped funding opportunities.
+
 ## Definitions that the comments in the code uses.
 
 > **Core API**: Happly API.  
-**This microservice** / **software**: The current microservice (the current codebase).  
+**This microservice** / **Auto Scraper** / **software**: The current microservice (the current codebase).  
 **Admin Portal**: The admin portal that is used to manage the opportunities (aka. funding-scraper repository).
 
-# Funding Microservice
-The funding microservice is a microservice that is used to scrape funding opportunities given a URL.
-It is used to scrape using chatGPT and store the extracted information in a database and to provide
-an API to the admin portal to fetch the funding opportunities.
-
 ## How it works
-Scraper Microservice is used for scraping the funding opportunities from the given URL(s). When given a URL or a sets of
+Auto Scraper Microservice is used for scraping the funding opportunities from the given URL(s). When given a URL or a sets of
 URLs, it will start scraping and extracting information from the webpage.
 
 The software can process multiple URLs simultaneously. However, it has a limit of 10 URLs at a time. This is to prevent
@@ -51,12 +51,19 @@ npm install
 3. Create a `.env` file from `.env.example` in the root directory of the project and make sure
 you fill in the following fields (**required**):
 ```dotenv
+# Microservice Secrets
+API_SECRET_KEY="api secret"
+
 # MongoDB
 MONGO_URI="<MongoDB URI>"
 
 # OpenAI
 OPENAI_API_KEY=""
 OPENAI_ORG_ID=""
+
+# Happly
+HAPPLY_SYNC_TOKEN=
+HAPPLY_SYNC_API=http://127.0.0.1:8000/api
 ```
 
 4. Build and Run the Microservice.
