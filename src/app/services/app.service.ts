@@ -6,7 +6,7 @@ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ChatGPTService } from '@/openai/services/chatgpt.service';
-import { getCheerioAPIFromHTML, isValidUrl, tryReassembleUrl } from '../utils/helperFunctions';
+import { getCheerioAPIFromHTML, isValidUrl, tryReassembleUrl } from '@/app/helpers/helperFunctions';
 import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
 import { ExtractorService } from './extractor.service';
 import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
@@ -16,7 +16,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { OpportunityPortalService } from '@/happly/services/opportunityPortal.service';
 import { QueueItem } from '../dtos/request/submitURLs.request.dto';
 import { ExtractingOpportunitiesQueueItem } from '@/app/models/ExtractingOpportunitiesQueueItem.model';
-import { saveSafely } from '@/app/utils/mongooseHelpers';
+import { saveSafely } from '@/app/helpers/mongooseHelpers';
 
 @Injectable()
 export class AppService {
