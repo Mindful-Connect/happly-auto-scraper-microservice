@@ -7,8 +7,6 @@ import { OpenAIRequest } from '../openai.types';
 export class ChatGPTService {
   constructor(private configService: ConfigService) {}
 
-  public static tokenLimit = 8192;
-
   async getResponse(payload: OpenAIRequest) {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     const res = await axios.post('https://api.openai.com/v1/chat/completions', payload, {

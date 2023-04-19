@@ -101,7 +101,7 @@ export class AppService {
             .addDetail(extractedOpportunityDocument.errorDetails),
         );
         extractedOpportunityDocument.errorDetails = undefined;
-      } else {
+        await saveSafely(extractedOpportunityDocument);
       }
 
       // Send the update to the client webhook
@@ -111,8 +111,6 @@ export class AppService {
         .catch(e => {
           console.error('Could not update the opportunity portal with the extracted information! ⚠️', e);
         });
-
-      await saveSafely(extractedOpportunityDocument);
     }
 
     if (this.extractingOpportunitiesQueue.length > 0) {

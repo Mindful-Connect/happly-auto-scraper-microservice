@@ -134,7 +134,7 @@ export class OpportunityPortalService {
         value: doc.opportunity_value_proposition.data,
         amount: interestingFields.funding_amount.stringify(doc.funding_amount.data),
         open_date: doc.application_opening_date.data,
-        deadlines: doc.application_deadline.data,
+        deadlines: doc.application_deadline_date.data,
         process_time: doc.application_process_time.data,
         comp_req: interestingFields.company_eligibility_requirements.stringify(doc.company_eligibility_requirements.data), // TODO
         project_eligibility: interestingFields.project_eligibility.stringify(doc.project_eligibility.data), // TODO

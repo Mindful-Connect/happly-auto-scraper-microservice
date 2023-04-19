@@ -87,6 +87,7 @@ npm run start:prod
 - [ ] add a few other fields (app_req, business_type_req, role_type_tags, role_length_tags, project_activities_tags, project_length_tags)
 - [ ] Make sure all the fields are scraped correctly.
 - [ ] Add more inline comments in the code
+- [ ] Add Support for PDFs
 
 ## Tech Stacks
 ![img.png](docs/assets/tech-stacks.png)

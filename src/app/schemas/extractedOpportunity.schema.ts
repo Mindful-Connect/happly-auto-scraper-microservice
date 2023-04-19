@@ -42,7 +42,7 @@ export const InterestingFields = {
   link_to_application: new InterestingField(),
 
   application_opening_date: new InterestingField(true),
-  application_deadline: new InterestingField(true),
+  application_deadline_date: new InterestingField(true),
 
   company_eligibility_requirements: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
   eligible_activities: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
@@ -160,7 +160,7 @@ export class ExtractedOpportunity {
   application_opening_date: Field<string> = new Field('date');
 
   @Prop({ type: FieldSchema })
-  application_deadline: Field<string> = new Field('date');
+  application_deadline_date: Field<string> = new Field('date');
 
   @Prop({ type: FieldSchema })
   opportunity_value_proposition: Field<string> = new Field();

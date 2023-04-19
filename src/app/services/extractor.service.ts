@@ -6,7 +6,7 @@ import { minify } from 'html-minifier-terser';
 import { encode } from 'gpt-3-encoder';
 import { ChatGPTService } from '@/openai/services/chatgpt.service';
 import { Field, FieldPossibleTypes, FieldPossibleTypesString } from '../schemas/field.schema';
-import { GPTFinishReason } from '@/openai/openai.types';
+import { GPTFinishReason, TokenLimits } from '@/openai/openai.types';
 import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
 import { getCheerioAPIFromHTML, isValidUri } from '@/app/helpers/helperFunctions';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -15,6 +15,7 @@ import { ExtractionProcessUpdateDto } from '../dtos/response/extractionProcessUp
 import { ProcessLogger } from './app.processLogger';
 import { ExtractingOpportunitiesQueueItem } from '@/app/models/ExtractingOpportunitiesQueueItem.model';
 import { saveSafely } from '@/app/helpers/mongooseHelpers';
+import { chooseModelByTokens } from '@/openai/helpers/chooseModelByTokens.helper';
 
 export class ExtractorService {
   public url: string;
@@ -75,7 +76,7 @@ export class ExtractorService {
     }
 
     const chunks = this.segmentTheChunk(stripped);
-    let flattened = chunks.flat(<20>Infinity).filter(c => c !== '') as string[];
+    let flattened = chunks.flat(<10000>Infinity).filter(c => c !== '') as string[];
     this.processLogger.info('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️', {
       flattened,
     });
@@ -102,7 +103,7 @@ export class ExtractorService {
 
       while (
         flattened.length > 0 &&
-        ChatGPTService.tokenLimit / 2 >= this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + flattened[0])])
+        TokenLimits['gpt-3.5-turbo'] / 2 >= this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + flattened[0])])
       ) {
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1).addDetail('Gathering chunks to be sent to ChatGPT... 🚚'));
         readyToBeSent.push(flattened.shift());
@@ -119,6 +120,8 @@ export class ExtractorService {
 
       const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
 
+      const [gptModel, tokenLimit] = chooseModelByTokens(totalMessagesToken);
+
       const requestingFields = this.getRequestingFields();
       this.processLogger.info('Deciding which missing fields to request... 🔍📦', { requestingFields });
       this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1));
@@ -134,7 +137,7 @@ export class ExtractorService {
         );
         console.warn('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳');
         const gptResponse = await this.chatGPTService.getResponse({
-          model: 'gpt-4-0314',
+          model: gptModel,
           messages: [
             {
               role: 'system',
@@ -146,7 +149,7 @@ export class ExtractorService {
             },
           ],
           temperature: 0.4,
-          max_tokens: ChatGPTService.tokenLimit - totalMessagesToken, // completion token.
+          max_tokens: tokenLimit - totalMessagesToken, // completion token.
           top_p: 1,
           frequency_penalty: 0,
           presence_penalty: 0,
@@ -160,12 +163,11 @@ export class ExtractorService {
 
         const finishReason: GPTFinishReason = gptResponse.choices[0].finish_reason;
         if (finishReason !== GPTFinishReason.STOP) {
-          this.processLogger.info('ChatGPT did not finish the response... ❌🧠🤖', gptResponse);
+          extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
+          extractedOpportunityDocument.errorDetails = 'ChatGPT did not finish the response... ❌🧠🤖';
 
-          this.extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
-          this.extractedOpportunityDocument.errorDetails = 'ChatGPT did not finish the response... ❌🧠🤖';
-          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument, this.processLogger);
-          return;
+          this.processLogger.info(extractedOpportunityDocument.errorDetails, gptResponse);
+          continue;
         }
 
         const responseStringJson = gptResponse.choices[0].message.content;
@@ -175,14 +177,14 @@ export class ExtractorService {
           const value: { data: any; relevant_link: string | null } = response[key];
           if (requestingFields.includes(key)) {
             this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 0.01));
-            this.extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.PARTIALLY_EXTRACTED;
+            extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.PARTIALLY_EXTRACTED;
 
-            const field = this.extractedOpportunityDocument[key] as Field<FieldPossibleTypes>;
+            const field = extractedOpportunityDocument[key] as Field<FieldPossibleTypes>;
 
             // If the field is not empty, only overwrite it if the field is marked as `shouldOverwrite`.
             // Otherwise, only overwrite it if the field is empty.
             if (!this.isFieldEmpty(field.fieldType, field.data)) {
-              if (interestingFields[key].shouldOverwrite) {
+              if (interestingFields[key].shouldOverwrite && !this.isFieldEmpty(field.fieldType, value.data)) {
                 field.data = value.data;
               }
             } else {
@@ -198,18 +200,21 @@ export class ExtractorService {
           awaitingRetriesBecauseMissingFields++;
         }
 
-        // save in db
-        await saveSafely(extractedOpportunityDocument);
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 5).addDetail('Saved the response in the database... ✅📦🗃️'));
       } catch (e) {
-        this.processLogger.info('ChatGPT failed to respond... ❌🧠🤖', e);
+        extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
+        extractedOpportunityDocument.errorDetails = 'ChatGPT failed to respond... ❌🧠🤖';
 
-        this.extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
-        this.extractedOpportunityDocument.errorDetails = 'ChatGPT failed to respond... ❌🧠🤖';
-        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, this.extractedOpportunityDocument, this.processLogger);
+        this.processLogger.info(extractedOpportunityDocument.errorDetails, e);
         console.error(e);
+      } finally {
+        // save in db
+        await saveSafely(extractedOpportunityDocument);
       }
     }
+
+    // emit an event to make manager release another from queue or whatever.
+    this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
 
     const anyOtherRequestingFields = this.getRequestingFields();
 
@@ -232,8 +237,7 @@ export class ExtractorService {
 
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url).finishedSuccessfully().addDetail('Extracted all the fields! 🥳🍾'));
 
-        // emit an event to make manager release another from queue or whatever.
-        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
+        this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionCompleted, extractedOpportunityDocument);
       } else {
         if (Object.keys(relevantLinks).length < 1) {
           extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.PARTIALLY_EXTRACTED;
@@ -245,7 +249,6 @@ export class ExtractorService {
               .addDetail('Some fields are missing but no relevant links were found! needs manual review 📝'),
           );
 
-          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
           this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionCompleted, extractedOpportunityDocument);
         } else {
           extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.PARTIALLY_EXTRACTED;
@@ -255,14 +258,13 @@ export class ExtractorService {
             new ExtractionProcessUpdateDto(this.url).addDetail('Some fields are missing but relevant links were found! (promising) 🧐🔎'),
           );
 
-          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
           this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded, relevantLinks, extractedOpportunityDocument);
         }
       }
     } else {
       const isDoomed = anyOtherRequestingFields.every(fieldName => {
         const field = extractedOpportunityDocument[fieldName] as Field<FieldPossibleTypes>;
-        return !isValidUri(field.relevantLink);
+        return !this.isValidRelevantLink(field.relevantLink);
       });
 
       if (isDoomed) {
@@ -281,7 +283,6 @@ export class ExtractorService {
         extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.FULLY_EXTRACTED;
       }
 
-      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
       this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionCompleted, extractedOpportunityDocument);
 
       await saveSafely(extractedOpportunityDocument);
@@ -308,7 +309,7 @@ export class ExtractorService {
   private segmentTheChunk(htmlChunk: string, separatorIndex = 0): NestedStringArray {
     // should i chunk it more?
     const numOfTokens = this.countTokens([this.systemMessage, this.getUserMessage(htmlChunk)]);
-    if (ChatGPTService.tokenLimit / 2 < numOfTokens) {
+    if (TokenLimits['gpt-3.5-turbo'] / 2 < numOfTokens) {
       const nextSeparator = this.segmentSplittingIdentifiers.length - 1 === separatorIndex ? separatorIndex : separatorIndex + 1;
       const { success, segments } = this.segmentMethod(htmlChunk, this.segmentSplittingIdentifiers[separatorIndex]);
       if (success) {
