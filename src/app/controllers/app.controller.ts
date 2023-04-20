@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Sse, MessageEvent, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Sse, MessageEvent, UseGuards, Param, NotFoundException } from '@nestjs/common';
 import { AppService } from '../services/app.service';
 import { ExtractedOpportunity } from '../schemas/extractedOpportunity.schema';
 import { SubmitURLsRequestDto } from '../dtos/request/submitURLs.request.dto';
@@ -6,30 +6,42 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { fromEvent, map, Observable } from 'rxjs';
 import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
 import { AuthTokenGuard } from '../guards/authToken.guard';
+import { OpportunityPortalService } from '@/happly/services/opportunityPortal.service';
+import { ExtractedOpportunityRepository } from '@/app/repositories/extractedOpportunity.repository';
 
 @Controller()
 @UseGuards(AuthTokenGuard)
 export class AppController {
-  constructor(private readonly appService: AppService, private eventEmitter: EventEmitter2) {}
+  constructor(
+    private readonly appService: AppService,
+    private eventEmitter: EventEmitter2,
+    private opportunityPortalService: OpportunityPortalService,
+    private extractedOpportunityRepository: ExtractedOpportunityRepository,
+  ) {}
 
   @Get('/opportunities')
   async getOpportunities(): Promise<ExtractedOpportunity[]> {
-    return await this.appService.getOpportunities();
+    return await this.extractedOpportunityRepository.getOpportunities();
   }
 
-  // @Post('/opportunities')
-  // async submitURL(@Query('url') url: string): Promise<string> {
-  //   console.info('Submitting a new URL 🔗: ', url);
-  //   this.appService
-  //     .submitQueueItem({ url, name: '', queueId: '' })
-  //     .then()
-  //     .catch(error => {
-  //       this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded);
-  //       console.log(error);
-  //     });
-  //
-  //   return url;
-  // }
+  @Get('/opportunities/:queueId')
+  async getOpportunityByQueueId(@Param('queueId') queueId: string) {
+    const doc = await this.extractedOpportunityRepository.findOpportunityByQueueId(queueId);
+    if (!doc) throw new NotFoundException();
+    return doc;
+  }
+
+  @Get('/opportunities/:queueId/scraped')
+  async getScrapedOpportunityByQueueId(@Param('queueId') queueId: string) {
+    const dto = await this.extractedOpportunityRepository.getScrapedOpportunityByQueueId(queueId);
+    if (!dto) throw new NotFoundException();
+    return dto;
+  }
+
+  @Get('/test')
+  async test() {
+    this.opportunityPortalService.test();
+  }
 
   @Post('/opportunities')
   async submitURLs(@Body() urlsRequestDto: SubmitURLsRequestDto): Promise<SubmitURLsRequestDto> {

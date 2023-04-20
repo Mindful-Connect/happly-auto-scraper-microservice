@@ -10,6 +10,7 @@ import { OpenaiModule } from './openai/openai.module';
 import { ProcessLogger } from './app/services/app.processLogger';
 import { ScheduleModule } from '@nestjs/schedule';
 import { HapplyModule } from './happly/happly.module';
+import { ExtractedOpportunityRepository } from '@/app/repositories/extractedOpportunity.repository';
 
 @Module({
   imports: [
@@ -31,6 +32,6 @@ import { HapplyModule } from './happly/happly.module';
     HapplyModule,
   ],
   controllers: [AppController],
-  providers: [AppService, ProcessLogger],
+  providers: [AppService, ProcessLogger, ExtractedOpportunityRepository],
 })
 export class AppModule {}

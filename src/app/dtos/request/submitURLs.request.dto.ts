@@ -1,5 +1,6 @@
-import { IsArray, IsOptional, IsString, IsUrl, IsUUID, ValidateNested } from 'class-validator';
+import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, IsUrl, IsUUID, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 
 export class QueueItem {
   @IsUrl()
@@ -9,8 +10,12 @@ export class QueueItem {
   @IsOptional()
   name = 'Unnamed';
 
-  @IsUUID()
+  @IsString()
+  @IsNotEmpty()
   queueId: string;
+
+  @IsEnum(QueueItemSourceEnum)
+  source: QueueItemSourceEnum;
 }
 
 export class SubmitURLsRequestDto {

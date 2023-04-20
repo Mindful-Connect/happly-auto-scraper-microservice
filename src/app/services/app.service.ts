@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
 import { ExtractedOpportunity, ExtractedOpportunityDocument } from '../schemas/extractedOpportunity.schema';
-import { Model } from 'mongoose';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -17,6 +15,8 @@ import { OpportunityPortalService } from '@/happly/services/opportunityPortal.se
 import { QueueItem } from '../dtos/request/submitURLs.request.dto';
 import { ExtractingOpportunitiesQueueItem } from '@/app/models/ExtractingOpportunitiesQueueItem.model';
 import { saveSafely } from '@/app/helpers/mongooseHelpers';
+import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
+import { ExtractedOpportunityRepository } from '@/app/repositories/extractedOpportunity.repository';
 
 @Injectable()
 export class AppService {
@@ -28,8 +28,7 @@ export class AppService {
   private rateLimitRequestPerMinute = 200;
 
   constructor(
-    @InjectModel(ExtractedOpportunity.name)
-    private extractedOpportunityModel: Model<ExtractedOpportunityDocument>,
+    private readonly extractedOpportunityRepository: ExtractedOpportunityRepository,
     private chatGPTService: ChatGPTService,
     private eventEmitter: EventEmitter2,
     private processLogger: ProcessLogger,
@@ -56,6 +55,9 @@ export class AppService {
   async onExtractionCompleted(extractedOpportunityDocument?: ExtractedOpportunityDocument) {
     if (!extractedOpportunityDocument)
       return this.processLogger.error('No extractedOpportunityDocument was provided!', 'extractedOpportunityDocument', extractedOpportunityDocument);
+
+    // Don't automatically submit to the panel if the source is from the existing expired opportunities
+    if (extractedOpportunityDocument.source === QueueItemSourceEnum.ExpiredOpportunity) return;
 
     // wait a bit to make sure async processes are done
     await new Promise(resolve => setTimeout(resolve, 5000));
@@ -192,26 +194,25 @@ export class AppService {
   }
 
   async submitQueueItem(queueItem: QueueItem): Promise<any> {
-    const { url, name, queueId } = queueItem;
+    const { url, name, queueId, source } = queueItem;
     // imagining all the webpages are not using javascript to render. (TODO: fix puppeteer)
 
-    let extractedOpportunityDocument = await this.extractedOpportunityModel.findOne({ url }).exec();
+    let extractedOpportunityDocument = await this.extractedOpportunityRepository.findOpportunityByURL(url);
     if (extractedOpportunityDocument === null) {
       this.processLogger.info('No entry found for this URL. Creating a new one... 🆕✨', url);
-      extractedOpportunityDocument = new this.extractedOpportunityModel(
+      extractedOpportunityDocument = await this.extractedOpportunityRepository.createOpportunity(
         new ExtractedOpportunity({
           url,
           name,
           queueId,
+          source,
           clientRenderedPage: false,
         }),
       );
-
-      await saveSafely(extractedOpportunityDocument);
     } else {
-      // TODO: remove this (this is for the demo)
       this.processLogger.info('Entry found for this URL. Updating the status... 🔄', url);
     }
+
     this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 10));
 
     let $: cheerio.CheerioAPI;
@@ -229,7 +230,6 @@ export class AppService {
 
       // the page is not accessible.So we need to review it manually
       extractedOpportunityDocument.errorDetails = 'Page is not accessible';
-      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
 
       setTimeout(() => {
         extractedOpportunityDocument.deleteOne();
@@ -238,10 +238,7 @@ export class AppService {
     }
 
     // check if this is a CRP page
-    // TODO: maybe ask chatGPT to confirm
-    const clientRenderedPage = body.html().length < 200;
-
-    extractedOpportunityDocument.clientRenderedPage = clientRenderedPage;
+    extractedOpportunityDocument.clientRenderedPage = body.html().length < 200;
     await saveSafely(extractedOpportunityDocument);
 
     this.processLogger.info('Checking if this extraction process can be ran immediately... 🏃🔍', url);
@@ -270,9 +267,5 @@ export class AppService {
     extractorService.extractOpportunity().catch(() => {
       this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
     });
-  }
-
-  async getOpportunities(): Promise<ExtractedOpportunity[]> {
-    return await this.extractedOpportunityModel.find().exec();
   }
 }

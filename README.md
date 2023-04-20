@@ -79,7 +79,10 @@ npm run start:prod
 ```
 
 ## TODO
-- [ ] plan for rescraping the opportunities. (maybe add a button in the admin panel that says "rescrape all" and then starts rescraping everything again)
+- [ ] rescrape every past existing opportunity and send to the portal to compare the results. 
+- [x] plan for rescraping the opportunities. (maybe add a button in the admin panel that says "rescrape all" and then starts rescraping everything again) 
+- [ ] mitigate the rate limit issue by backing off the requests exponentially.
+- [ ] save all the logs in a file or something. (maybe use winston)
 - [ ] make sure the application link will be shown as full link if GPT sent a URI fragment.
 - [ ] extracting province abbreviation is not stable
 - [ ] deadline and open date are inconsistent when not found.

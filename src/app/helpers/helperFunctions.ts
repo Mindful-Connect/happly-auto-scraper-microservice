@@ -52,6 +52,10 @@ export function isValidUrl(url: string) {
   }
 }
 
+export function isValidDateString(date: string) {
+  return !isNaN(Date.parse(date));
+}
+
 export function tryReassembleUrl(appUrl: string, uri: string) {
   try {
     const url = new URL(appUrl);
