@@ -1,25 +1,25 @@
 import { Injectable } from '@nestjs/common';
-import { ExtractedOpportunity, ExtractedOpportunityDocument } from '../schemas/extractedOpportunity.schema';
+import { ExtractedOpportunity, ExtractedOpportunityDocument } from '@/extracted-opportunity/schemas/extractedOpportunity.schema';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ChatGPTService } from '@/openai/services/chatgpt.service';
-import { getCheerioAPIFromHTML, isValidUrl, tryReassembleUrl } from '@/app/helpers/helperFunctions';
-import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
+import { getCheerioAPIFromHTML, isValidUrl, tryReassembleUrl } from '@/_domain/helpers/helperFunctions';
+import { AutoScraperQueueStatusEnum } from '@/auto-scraper/enums/autoScraperQueueStatus.enum';
 import { ExtractorService } from './extractor.service';
-import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
-import { ExtractionProcessUpdateDto } from '../dtos/response/extractionProcessUpdate.dto';
-import { ProcessLogger } from './app.processLogger';
+import { OpportunityEventNamesEnum } from '@/auto-scraper/enums/opportunityEventNames.enum';
+import { ExtractionProcessUpdateDto } from '@/auto-scraper/dtos/extractionProcessUpdate.dto';
+import { ProcessLogger } from '../libraries/processLogger.lib';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OpportunityPortalService } from '@/happly/services/opportunityPortal.service';
-import { QueueItem } from '../dtos/request/submitURLs.request.dto';
-import { ExtractingOpportunitiesQueueItem } from '@/app/models/ExtractingOpportunitiesQueueItem.model';
-import { saveSafely } from '@/app/helpers/mongooseHelpers';
+import { QueueItem } from '@/auto-scraper/dtos/request/submitURLs.request.dto';
+import { ExtractingOpportunitiesQueueItem } from '@/auto-scraper/models/ExtractingOpportunitiesQueueItem.model';
+import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
-import { ExtractedOpportunityRepository } from '@/app/repositories/extractedOpportunity.repository';
+import { ExtractedOpportunityRepository } from '@/extracted-opportunity/repositories/extractedOpportunity.repository';
 
 @Injectable()
-export class AppService {
+export class AutoScraperService {
   private readonly extractingOpportunitiesQueue: ExtractingOpportunitiesQueueItem[] = [];
   private readonly currentRunningExtractionProcesses: Record<string, ExtractorService> = {};
 

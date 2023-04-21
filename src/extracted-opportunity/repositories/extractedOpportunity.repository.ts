@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { ExtractedOpportunity, ExtractedOpportunityDocument, interestingFields } from '@/app/schemas/extractedOpportunity.schema';
+import { ExtractedOpportunity, ExtractedOpportunityDocument, interestingFields } from '@/extracted-opportunity/schemas/extractedOpportunity.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ScrapedOpportunityDto } from '@/happly/dtos/scrapedOpportunity.dto';
-import { saveSafely } from '@/app/helpers/mongooseHelpers';
+import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
 
 @Injectable()
 export class ExtractedOpportunityRepository {
@@ -26,7 +26,7 @@ export class ExtractedOpportunityRepository {
     return await this.extractedOpportunityModel.findOne({ url }).exec();
   }
 
-  async findOpportunityByQueueId(queueId: string): Promise<ExtractedOpportunity | null> {
+  async findOpportunityByQueueId(queueId: string): Promise<ExtractedOpportunityDocument | null> {
     return await this.extractedOpportunityModel.findOne({ queueId }).exec();
   }
 
@@ -36,7 +36,7 @@ export class ExtractedOpportunityRepository {
     return await this.getScrapedOpportunityDto(doc);
   }
 
-  async getScrapedOpportunityDto(doc: ExtractedOpportunity) {
+  async getScrapedOpportunityDto(doc: ExtractedOpportunityDocument) {
     return new ScrapedOpportunityDto({
       source_id: doc.queueId,
       name: doc.program_name.data,

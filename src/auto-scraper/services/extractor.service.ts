@@ -1,21 +1,22 @@
-import { ExtractedOpportunityDocument, interestingFields } from '../schemas/extractedOpportunity.schema';
+import { ExtractedOpportunityDocument, interestingFields, overwritableFields } from '@/extracted-opportunity/schemas/extractedOpportunity.schema';
 import * as cheerio from 'cheerio';
 import axios from 'axios';
 import puppeteer from 'puppeteer';
 import { minify } from 'html-minifier-terser';
 import { encode } from 'gpt-3-encoder';
 import { ChatGPTService } from '@/openai/services/chatgpt.service';
-import { Field, FieldPossibleTypes, FieldPossibleTypesString } from '../schemas/field.schema';
+import { Field, FieldPossibleTypes, FieldPossibleTypesString } from '@/extracted-opportunity/schemas/field.schema';
 import { GPTFinishReason, TokenLimits } from '@/openai/openai.types';
-import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
-import { getCheerioAPIFromHTML, isValidUri } from '@/app/helpers/helperFunctions';
+import { AutoScraperQueueStatusEnum } from '@/auto-scraper/enums/autoScraperQueueStatus.enum';
+import { getCheerioAPIFromHTML, isValidDateString, isValidUri } from '@/_domain/helpers/helperFunctions';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
-import { ExtractionProcessUpdateDto } from '../dtos/response/extractionProcessUpdate.dto';
-import { ProcessLogger } from './app.processLogger';
-import { ExtractingOpportunitiesQueueItem } from '@/app/models/ExtractingOpportunitiesQueueItem.model';
-import { saveSafely } from '@/app/helpers/mongooseHelpers';
+import { OpportunityEventNamesEnum } from '@/auto-scraper/enums/opportunityEventNames.enum';
+import { ExtractionProcessUpdateDto } from '@/auto-scraper/dtos/extractionProcessUpdate.dto';
+import { ProcessLogger } from '../libraries/processLogger.lib';
+import { ExtractingOpportunitiesQueueItem } from '@/auto-scraper/models/ExtractingOpportunitiesQueueItem.model';
+import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
 import { chooseModelByTokens } from '@/openai/helpers/chooseModelByTokens.helper';
+import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 
 export class ExtractorService {
   public url: string;
@@ -85,7 +86,7 @@ export class ExtractorService {
     );
 
     const flattenedRemember = [...flattened];
-    let awaitingRetriesBecauseMissingFields = 1; // This is a hacky way to retry the extraction if ChatGPT misses some fields due to lack of tokens
+    let awaitingRetriesBecauseMissingFields = this.isNested ? 0 : 1; // This is a hacky way to retry the extraction if ChatGPT misses some fields due to lack of tokens
     while (flattened.length > 0 || awaitingRetriesBecauseMissingFields > 0) {
       if (flattened.length === 0 && awaitingRetriesBecauseMissingFields > 0) {
         this.processLogger.broadcast(
@@ -122,7 +123,7 @@ export class ExtractorService {
 
       const [gptModel, tokenLimit] = chooseModelByTokens(totalMessagesToken);
 
-      const requestingFields = this.getRequestingFields();
+      const requestingFields = this.reviseRequestingFields(this.getRequestingFields());
       this.processLogger.info('Deciding which missing fields to request... 🔍📦', { requestingFields });
       this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1));
 
@@ -184,7 +185,7 @@ export class ExtractorService {
             // If the field is not empty, only overwrite it if the field is marked as `shouldOverwrite`.
             // Otherwise, only overwrite it if the field is empty.
             if (!this.isFieldEmpty(field.fieldType, field.data)) {
-              if (interestingFields[key].shouldOverwrite && !this.isFieldEmpty(field.fieldType, value.data)) {
+              if (overwritableFields.includes(key as any) && this.shouldHardOverwrite(key as any, field.fieldType, field.data, value.data)) {
                 field.data = value.data;
               }
             } else {
@@ -297,6 +298,44 @@ export class ExtractorService {
     }
   }
 
+  private shouldHardOverwrite(fieldName: (typeof overwritableFields)[number], fieldType: FieldPossibleTypesString, prevValue: any, newValue: any) {
+    if (!overwritableFields.includes(fieldName) || this.isFieldEmpty(fieldType, newValue)) return false;
+    if (this.isFieldEmpty(fieldType, prevValue)) return true; // safety check
+
+    switch (fieldName) {
+      case 'application_deadline_date':
+        return newValue === 'Closed' || (isValidDateString(newValue) && Date.parse(newValue) >= Date.now());
+      case 'application_opening_date':
+        if (!isValidDateString(prevValue)) return true;
+        return isValidDateString(newValue);
+      case 'application_process_time':
+        return ['Quick', 'Moderate', 'Long'].includes(newValue);
+      default:
+        return false;
+    }
+  }
+
+  private reviseRequestingFields(requestingFields: string[]) {
+    const source = this.extractedOpportunityDocument.source;
+
+    if (QueueItemSourceEnum.ExpiredOpportunity === source) {
+      const deadline = this.extractedOpportunityDocument.application_deadline_date.data;
+      if (isValidDateString(deadline) && Date.parse(deadline) >= Date.now()) {
+        requestingFields = requestingFields.filter(field => field !== 'application_deadline_date');
+      }
+      const opening = this.extractedOpportunityDocument.application_opening_date.data;
+      if (isValidDateString(opening)) {
+        requestingFields = requestingFields.filter(field => field !== 'application_opening_date');
+      }
+      const processingTime = this.extractedOpportunityDocument.application_process_time.data;
+      if (processingTime !== 'Quick') {
+        requestingFields = requestingFields.filter(field => field !== 'application_process_time');
+      }
+    }
+
+    return requestingFields;
+  }
+
   private segmentMethod(htmlChunk: string, identifier: string) {
     const segments = htmlChunk.split(identifier);
     let success = true;
@@ -364,7 +403,7 @@ ${whereClauses}
       const field = this.extractedOpportunityDocument[f] as Field<FieldPossibleTypes>;
 
       const isFieldEmpty = this.isFieldEmpty(field.fieldType, field.data);
-      const shouldOverwrite = interestingFields[f].shouldOverwrite;
+      const shouldOverwrite = overwritableFields.includes(f as (typeof overwritableFields)[number]);
 
       return isFieldEmpty ? true : shouldOverwrite;
     });
@@ -400,7 +439,10 @@ ${whereClauses}
       case 'number[]':
         return Array.isArray(data) ? (data as Array<unknown>).filter(d => (typeof d === 'number' ? !isNaN(d) : false)).length < 1 : true;
       case 'date':
-        return typeof data === 'string' ? data.length < 1 : true;
+        if (typeof data !== 'string' || data.length < 1) return true;
+        // const date = new Date(data);
+        // if (isNaN(date.getTime())) return true;
+        return false;
       case 'boolean':
         return typeof data !== 'boolean';
       default:

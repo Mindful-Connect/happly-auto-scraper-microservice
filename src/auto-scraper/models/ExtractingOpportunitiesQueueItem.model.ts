@@ -1,4 +1,4 @@
-import { ExtractedOpportunityDocument } from '@/app/schemas/extractedOpportunity.schema';
+import { ExtractedOpportunityDocument } from '@/extracted-opportunity/schemas/extractedOpportunity.schema';
 
 export interface ExtractingOpportunitiesQueueItem {
   url: string;

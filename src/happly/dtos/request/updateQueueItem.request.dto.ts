@@ -1,8 +1,8 @@
-import { IsEnum, IsString, IsUUID } from 'class-validator';
-import { AutoScraperQueueStatusEnum } from '@/app/enums/autoScraperQueueStatus.enum';
+import { IsEnum, IsString } from 'class-validator';
+import { AutoScraperQueueStatusEnum } from '@/auto-scraper/enums/autoScraperQueueStatus.enum';
 
 export class UpdateQueueItemRequestDto {
-  @IsUUID()
+  @IsString()
   queueId: string;
 
   @IsEnum(AutoScraperQueueStatusEnum)

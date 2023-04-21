@@ -1,19 +1,14 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Field, FieldSchema } from './field.schema';
 import { HydratedDocument, Schema as SchemaMongoose } from 'mongoose';
-import { getMySQLDateFormatUTC, newUUID } from '@/app/helpers/helperFunctions';
-import { AutoScraperQueueStatusEnum } from '../enums/autoScraperQueueStatus.enum';
+import { getMySQLDateFormatUTC } from '@/_domain/helpers/helperFunctions';
+import { AutoScraperQueueStatusEnum } from '@/auto-scraper/enums/autoScraperQueueStatus.enum';
+import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 
 export type ExtractedOpportunityDocument = HydratedDocument<ExtractedOpportunity>;
 
 export class InterestingField {
-  shouldOverwrite = false;
-
   stringify: (fieldValue: any[] | string | number) => string = (f: string) => f;
-
-  constructor(shouldOverwrite?: boolean) {
-    this.shouldOverwrite = !!shouldOverwrite;
-  }
 
   setToString(toString: (fieldValue: any) => string) {
     this.stringify = toString;
@@ -32,6 +27,8 @@ export class InterestingField {
 //   return Reflect.metadata('InterestingField', new InterestingField(shouldOverwrite).setToString(toString));
 // };
 
+export const overwritableFields = ['application_opening_date', 'application_deadline_date', 'application_process_time'] as const;
+
 export const InterestingFields = {
   opportunity_provider_name: new InterestingField(),
   opportunity_issuer_name: new InterestingField(),
@@ -41,8 +38,8 @@ export const InterestingFields = {
 
   link_to_application: new InterestingField(),
 
-  application_opening_date: new InterestingField(true),
-  application_deadline_date: new InterestingField(true),
+  application_opening_date: new InterestingField(),
+  application_deadline_date: new InterestingField(),
 
   company_eligibility_requirements: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
   eligible_activities: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
@@ -78,7 +75,7 @@ export const InterestingFields = {
   funding_amount: new InterestingField().setToString(f => f?.toString() ?? ''),
 
   application_process_type: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ type: f })) || [])),
-  application_process_time: new InterestingField(true),
+  application_process_time: new InterestingField(),
 
   opportunity_insights: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ detail: f })) || [])),
 };
@@ -95,12 +92,10 @@ export class ExtractedOpportunity {
 
   // <editor-fold desc="Meta data of Opportunity">
   /**
-   * Generated UUID by this microservice. Used to identify the opportunity
-   * among the admin portal and the core API.
+   * The Queue ID of the opportunity. Used to identify the opportunity
+   * among the admin portal and the core API. In case of submission,
+   * this will be the same as the `source_id` in the admin portal scraped_opportunities table.
    */
-  @Prop({ default: () => newUUID() })
-  syncId: string; // UUID
-
   @Prop({ type: SchemaMongoose.Types.String, required: true })
   queueId: string; // UUID
 
@@ -109,6 +104,9 @@ export class ExtractedOpportunity {
 
   @Prop({ type: SchemaMongoose.Types.String })
   name: string;
+
+  @Prop({ type: SchemaMongoose.Types.String, enum: QueueItemSourceEnum, default: QueueItemSourceEnum.Pocket })
+  source: QueueItemSourceEnum;
 
   @Prop({ type: SchemaMongoose.Types.String })
   errorDetails?: string;
@@ -129,9 +127,6 @@ export class ExtractedOpportunity {
 
   @Prop({ type: [SchemaMongoose.Types.String] })
   logs: string[];
-
-  @Prop({ default: getMySQLDateFormatUTC() })
-  submittedAt: string;
   // </editor-fold>
 
   // <editor-fold desc="Fields">
@@ -160,7 +155,11 @@ export class ExtractedOpportunity {
   application_opening_date: Field<string> = new Field('date');
 
   @Prop({ type: FieldSchema })
-  application_deadline_date: Field<string> = new Field('date');
+  application_deadline_date: Field<string> = new Field(
+    'date',
+    'where `application_deadline_date` is the date when the application closes. Date is in YYYY-MM-DD format if available. ' +
+      'is "Closed" if the application is closed, expired, or is in the past. is "Open Until Filled" if open but not mentioned. is empty string if not available',
+  );
 
   @Prop({ type: FieldSchema })
   opportunity_value_proposition: Field<string> = new Field();
@@ -311,7 +310,7 @@ ExtractedOpportunitySchema.pre('save', function (next) {
   const extractedOpportunity = this as ExtractedOpportunityDocument;
 
   const now = getMySQLDateFormatUTC();
-  if (!extractedOpportunity.syncId) {
+  if (!extractedOpportunity.createdAt) {
     extractedOpportunity.createdAt = now;
   }
   extractedOpportunity.updatedAt = now;

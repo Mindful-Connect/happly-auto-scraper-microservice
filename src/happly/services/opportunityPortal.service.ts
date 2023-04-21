@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import { ExtractedOpportunityDocument } from '@/app/schemas/extractedOpportunity.schema';
+import { ExtractedOpportunityDocument } from '@/extracted-opportunity/schemas/extractedOpportunity.schema';
 import { UpdateQueueItemRequestDto } from '../dtos/request/updateQueueItem.request.dto';
 import { ScrapedOpportunityDto } from '@/happly/dtos/scrapedOpportunity.dto';
-import { ExtractedOpportunityRepository } from '@/app/repositories/extractedOpportunity.repository';
+import { ExtractedOpportunityRepository } from '@/extracted-opportunity/repositories/extractedOpportunity.repository';
 
 @Injectable()
 export class OpportunityPortalService {

@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ExtractionProcessUpdateDto } from '../dtos/response/extractionProcessUpdate.dto';
-import { OpportunityEventNamesEnum } from '../enums/opportunityEventNames.enum';
+import { ExtractionProcessUpdateDto } from '@/auto-scraper/dtos/extractionProcessUpdate.dto';
+import { OpportunityEventNamesEnum } from '@/auto-scraper/enums/opportunityEventNames.enum';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { ExtractedOpportunityDocument } from '@/app/schemas/extractedOpportunity.schema';
+import { ExtractedOpportunityDocument } from '@/extracted-opportunity/schemas/extractedOpportunity.schema';
 
 @Injectable()
 export class ProcessLogger {
