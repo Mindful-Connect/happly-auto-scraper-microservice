@@ -15,7 +15,7 @@ import { ExtractionProcessUpdateDto } from '@/auto-scraper/dtos/extractionProces
 import { ProcessLogger } from '../libraries/processLogger.lib';
 import { ExtractingOpportunitiesQueueItem } from '@/auto-scraper/models/ExtractingOpportunitiesQueueItem.model';
 import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
-import { chooseModelByTokens } from '@/openai/helpers/chooseModelByTokens.helper';
+import { chooseModelByTokens } from '@/openai/helpers/openai.helper';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 
 export class ExtractorService {
@@ -26,7 +26,7 @@ export class ExtractorService {
   private systemMessage =
     'Given a chunk of HTML text, extract information asked by the user, and reply only in JSON format. your replies must be fully parsable by JSON.parse method in JavaScript.';
 
-  private segmentSplittingIdentifiers: string[] = ['<h1', '<h2', '<h3', '<p', '.'];
+  private segmentSplittingIdentifiers: string[] = ['<h1', '<h2', '<h3', '<p', '. '];
 
   constructor(
     private chatGPTService: ChatGPTService,
@@ -77,51 +77,26 @@ export class ExtractorService {
     }
 
     const chunks = this.segmentTheChunk(stripped);
-    let flattened = chunks.flat(<10000>Infinity).filter(c => c !== '') as string[];
+    let fragments = chunks.flat(<10000>Infinity).filter(c => c !== '') as string[];
     this.processLogger.info('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️', {
-      flattened,
+      fragments,
     });
     this.processLogger.broadcast(
       new ExtractionProcessUpdateDto(this.url, 2).addDetail('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️'),
     );
 
-    const flattenedRemember = [...flattened];
+    const fragmentsRemember = [...fragments];
     let awaitingRetriesBecauseMissingFields = this.isNested ? 0 : 1; // This is a hacky way to retry the extraction if ChatGPT misses some fields due to lack of tokens
-    while (flattened.length > 0 || awaitingRetriesBecauseMissingFields > 0) {
-      if (flattened.length === 0 && awaitingRetriesBecauseMissingFields > 0) {
+    while (fragments.length > 0 || awaitingRetriesBecauseMissingFields > 0) {
+      if (fragments.length === 0 && awaitingRetriesBecauseMissingFields > 0) {
         this.processLogger.broadcast(
           new ExtractionProcessUpdateDto(this.url, 1).addDetail(
             'ChatGPT missed some fields due to lack of tokens, retrying with the missing fields... 🔁',
           ),
         );
-        flattened = flattenedRemember;
+        fragments = fragmentsRemember;
         awaitingRetriesBecauseMissingFields--;
       }
-
-      const readyToBeSent: string[] = [];
-
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1));
-
-      while (
-        flattened.length > 0 &&
-        TokenLimits['gpt-3.5-turbo'] / 2 >= this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + flattened[0])])
-      ) {
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1).addDetail('Gathering chunks to be sent to ChatGPT... 🚚'));
-        readyToBeSent.push(flattened.shift());
-      }
-
-      if (readyToBeSent.length === 0) {
-        this.processLogger.info('No more chunks to be sent to ChatGPT... 🚚🚚🚚 This might be an error... 🤔', flattened);
-        break;
-      }
-
-      this.processLogger.info('Gathering chunks to be sent to ChatGPT... 🚚', { readyToBeSent });
-
-      const userMessage = this.getUserMessage(readyToBeSent.join(''));
-
-      const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
-
-      const [gptModel, tokenLimit] = chooseModelByTokens(totalMessagesToken);
 
       const requestingFields = this.reviseRequestingFields(this.getRequestingFields());
       this.processLogger.info('Deciding which missing fields to request... 🔍📦', { requestingFields });
@@ -131,6 +106,41 @@ export class ExtractorService {
         this.processLogger.info('No more missing fields to request... 📦📦📦');
         break;
       }
+
+      const readyToBeSent: string[] = [];
+
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1));
+
+      let quotient = 1.36;
+      if (requestingFields.length >= 30) {
+        quotient = 2;
+      } else if (requestingFields.length >= 20) {
+        quotient = 1.7;
+      } else if (requestingFields.length >= 10) {
+        quotient = 1.5;
+      }
+      const tokensLimitPerRequest = TokenLimits['gpt-3.5-turbo'] / quotient;
+
+      while (
+        fragments.length > 0 &&
+        tokensLimitPerRequest >= this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + fragments[0])])
+      ) {
+        this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1).addDetail('Gathering chunks to be sent to ChatGPT... 🚚'));
+        readyToBeSent.push(fragments.shift());
+      }
+
+      if (readyToBeSent.length === 0) {
+        this.processLogger.info('No more chunks to be sent to ChatGPT... 🚚🚚🚚 This might be an error... 🤔', fragments);
+        break;
+      }
+
+      this.processLogger.info('Gathering chunks to be sent to ChatGPT... 🚚', { readyToBeSent });
+
+      const userMessage = this.getUserMessage(readyToBeSent.join(''));
+
+      const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
+
+      const [gptModel, tokenLimit] = chooseModelByTokens(totalMessagesToken, requestingFields.length);
 
       try {
         this.processLogger.broadcast(
@@ -160,19 +170,40 @@ export class ExtractorService {
 
         // this.rateLimitTokenCounter += gptResponse.usage.total_tokens;
 
-        this.processLogger.info('Received response from ChatGPT... ✅🧠🤖', gptResponse);
+        this.processLogger.info(
+          'Received response from ChatGPT... ✅🧠🤖 | requestingFields.length = ' +
+            requestingFields.length +
+            ', tokensLimitPerRequest = ' +
+            tokensLimitPerRequest +
+            ', totalMessagesToken_expected = ' +
+            totalMessagesToken +
+            ', gptModel = ' +
+            gptModel +
+            ', real usage = ' +
+            JSON.stringify(gptResponse.usage),
+          gptResponse,
+        );
 
         const finishReason: GPTFinishReason = gptResponse.choices[0].finish_reason;
         if (finishReason !== GPTFinishReason.STOP) {
           extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
-          extractedOpportunityDocument.errorDetails = 'ChatGPT did not finish the response... ❌🧠🤖';
+          extractedOpportunityDocument.errorDetails = `ChatGPT did not finish successfully... ❌🧠🤖 Reason: ${finishReason}`;
 
           this.processLogger.info(extractedOpportunityDocument.errorDetails, gptResponse);
           continue;
         }
 
         const responseStringJson = gptResponse.choices[0].message.content;
-        const response = JSON.parse(responseStringJson);
+        let response;
+        try {
+          response = JSON.parse(responseStringJson);
+        } catch (invalidJsonError) {
+          extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
+          extractedOpportunityDocument.errorDetails = `ChatGPT response is not a valid JSON... ❌🧠🤖`;
+
+          this.processLogger.info(extractedOpportunityDocument.errorDetails, invalidJsonError, responseStringJson);
+          continue;
+        }
 
         Object.keys(response).forEach(key => {
           const value: { data: any; relevant_link: string | null } = response[key];
@@ -204,7 +235,7 @@ export class ExtractorService {
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 5).addDetail('Saved the response in the database... ✅📦🗃️'));
       } catch (e) {
         extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
-        extractedOpportunityDocument.errorDetails = 'ChatGPT failed to respond... ❌🧠🤖';
+        extractedOpportunityDocument.errorDetails = `ChatGPT failed to respond... ❌🧠🤖 Reason: ${e.message ?? 'Unknown'}`;
 
         this.processLogger.info(extractedOpportunityDocument.errorDetails, e);
         console.error(e);

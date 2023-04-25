@@ -176,11 +176,10 @@ export class AutoScraperService {
         isNested: true,
       });
       this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId] = extractorService;
-      extractorService
-        .extractOpportunity()
-        .catch(() =>
-          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger),
-        );
+      extractorService.extractOpportunity().catch(e => {
+        console.error('Could not extract the nested opportunity! ⚠️', e);
+        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
+      });
     }
 
     if (!anyRelevantLinkFound) {
@@ -231,9 +230,7 @@ export class AutoScraperService {
       // the page is not accessible.So we need to review it manually
       extractedOpportunityDocument.errorDetails = 'Page is not accessible';
 
-      setTimeout(() => {
-        extractedOpportunityDocument.deleteOne();
-      }, 5000);
+      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
       return;
     }
 
