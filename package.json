@@ -37,7 +37,7 @@
     "gpt-3-encoder": "^1.1.4",
     "html-minifier-terser": "^7.1.0",
     "mongoose": "^7.0.3",
-    "puppeteer": "^19.8.1",
+    "puppeteer": "^19.11.1",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.2.0",
     "uuid": "^9.0.0"

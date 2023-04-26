@@ -17,6 +17,8 @@ import { ExtractingOpportunitiesQueueItem } from '@/auto-scraper/models/Extracti
 import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
 import { chooseModelByTokens } from '@/openai/helpers/openai.helper';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
+import * as https from 'https';
+import * as crypto from 'crypto';
 
 export class ExtractorService {
   public url: string;
@@ -57,7 +59,15 @@ export class ExtractorService {
       $ = getCheerioAPIFromHTML(pageHTML);
     } else {
       this.processLogger.info('Static page detected, standard fetching... 🚛💨');
-      const pageHTML = await axios.get(this.url);
+      const pageHTML = await axios.get(this.url, {
+        httpsAgent: new https.Agent({
+          // for self signed you could also add
+          // rejectUnauthorized: false,
+
+          // allow legacy server
+          secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
+        }),
+      });
 
       $ = getCheerioAPIFromHTML(pageHTML.data);
     }

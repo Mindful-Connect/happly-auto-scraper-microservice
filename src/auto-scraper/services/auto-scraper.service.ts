@@ -17,6 +17,8 @@ import { ExtractingOpportunitiesQueueItem } from '@/auto-scraper/models/Extracti
 import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 import { ExtractedOpportunityRepository } from '@/extracted-opportunity/repositories/extractedOpportunity.repository';
+import * as https from 'https';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class AutoScraperService {
@@ -215,13 +217,19 @@ export class AutoScraperService {
     this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 10));
 
     let $: cheerio.CheerioAPI;
-    let body: cheerio.Cheerio<cheerio.Element>;
 
     try {
-      const pageHTML = await axios.get(url);
+      const pageHTML = await axios.get(url, {
+        httpsAgent: new https.Agent({
+          // for self signed you could also add
+          // rejectUnauthorized: false,
+
+          // allow legacy server
+          secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
+        }),
+      });
 
       $ = getCheerioAPIFromHTML(pageHTML.data);
-      body = $('body');
       this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
     } catch (e) {
       this.processLogger.info('Error while fetching the page. Marking it as FAILED_TO_PROCESS... 🚫', url);
@@ -235,7 +243,7 @@ export class AutoScraperService {
     }
 
     // check if this is a CRP page
-    extractedOpportunityDocument.clientRenderedPage = body.html().length < 200;
+    extractedOpportunityDocument.clientRenderedPage = $('p').length < 2;
     await saveSafely(extractedOpportunityDocument);
 
     this.processLogger.info('Checking if this extraction process can be ran immediately... 🏃🔍', url);
@@ -261,7 +269,8 @@ export class AutoScraperService {
       isNested: false,
     });
     this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId] = extractorService;
-    extractorService.extractOpportunity().catch(() => {
+    extractorService.extractOpportunity().catch(e => {
+      console.error('Could not extract the opportunity! ⚠️', e);
       this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
     });
   }
