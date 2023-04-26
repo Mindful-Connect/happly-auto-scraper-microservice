@@ -14,7 +14,9 @@ export class AuthTokenGuard implements CanActivate {
       return false;
     }
 
+    const apiSecretKey = this.configService.get<string>('API_SECRET_KEY');
+
     const token = bearerToken.split(' ')[1];
-    return !(!token && token !== this.configService.get<string>('API_SECRET_KEY'));
+    return !(!token || token !== apiSecretKey);
   }
 }
