@@ -55,7 +55,7 @@ export class ExtractedOpportunityRepository {
       eligible_activities: interestingFields.eligible_activities.stringify(doc.eligible_activities.data),
       eligibility_candidates: '', // TODO (this has been empty in the portal)
       role_req: interestingFields.role_eligibility_requirements.stringify(doc.role_eligibility_requirements.data), // TODO
-      app_req: '', // TODO
+      app_req: interestingFields.application_process_instructions.stringify(doc.application_process_instructions.data), // TODO
       cash_up: doc.cash_upfront.data !== null ? (doc.cash_upfront.data ? '1' : '0') : null, // TODO
       company_size_min_req:
         Array.isArray(doc.company_size_requirements.data) &&
@@ -93,18 +93,18 @@ export class ExtractedOpportunityRepository {
               })),
             )
           : '[]',
-      region_tags: interestingFields.municipalities.stringify(doc.municipalities.data), // TODO
+      region_tags: interestingFields.municipalities.stringify(doc.municipalities.data),
       candidate_req_tags: interestingFields.candidate_requirement_tags.stringify(doc.candidate_requirement_tags.data), // TODO
       subcategories: interestingFields.opportunity_categories.stringify(doc.opportunity_categories.data), // TODO
       subcategories_tags: interestingFields.opportunity_subcategories.stringify(doc.opportunity_subcategories.data), // TODO
       industry: interestingFields.industries.stringify(doc.industries.data),
       keywords: interestingFields.keywords.stringify(doc.keywords.data),
       app_type: interestingFields.application_process_type.stringify(doc.application_process_type.data),
-      business_type_req: '[]', // TODO
-      role_type_tags: '[]', // TODO
-      role_length_tags: '[]', // TODO
-      project_activities_tags: '[]', // TODO
-      project_length_tags: '[]',
+      business_type_req: interestingFields.business_type_requirements.stringify(doc.business_type_requirements.data), // TODO
+      role_type_tags: interestingFields.role_type_tags.stringify(doc.role_type_tags.data), // TODO
+      role_length_tags: interestingFields.role_length_tags.stringify(doc.role_length_tags.data), // TODO
+      project_activities_tags: interestingFields.role_length_tags.stringify(doc.project_activities_tags.data), // TODO
+      project_length_tags: interestingFields.project_length_tags.stringify(doc.project_length_tags.data), // TODO
       insights: interestingFields.opportunity_insights.stringify(doc.opportunity_insights.data),
     });
   }

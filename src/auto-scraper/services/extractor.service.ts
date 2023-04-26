@@ -95,8 +95,10 @@ export class ExtractorService {
       new ExtractionProcessUpdateDto(this.url, 2).addDetail('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️'),
     );
 
+    let retriesCount = 0;
+    const maxRetries = 2;
     const fragmentsRemember = [...fragments];
-    let awaitingRetriesBecauseMissingFields = this.isNested ? 0 : 1; // This is a hacky way to retry the extraction if ChatGPT misses some fields due to lack of tokens
+    let awaitingRetriesBecauseMissingFields = 0; // This is a hacky way to retry the extraction if ChatGPT misses some fields due to lack of tokens
     while (fragments.length > 0 || awaitingRetriesBecauseMissingFields > 0) {
       if (fragments.length === 0 && awaitingRetriesBecauseMissingFields > 0) {
         this.processLogger.broadcast(
@@ -238,8 +240,12 @@ export class ExtractorService {
           }
         });
 
-        if (this.areAnyFieldsMissing(Object.keys(response), requestingFields)) {
+        if (
+          maxRetries > retriesCount &&
+          (this.areAnyFieldsMissing(Object.keys(response), requestingFields) || this.getRequestingFields().length > 10)
+        ) {
           awaitingRetriesBecauseMissingFields++;
+          retriesCount++;
         }
 
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 5).addDetail('Saved the response in the database... ✅📦🗃️'));
@@ -345,7 +351,22 @@ export class ExtractorService {
 
     switch (fieldName) {
       case 'application_deadline_date':
-        return newValue === 'Closed' || (isValidDateString(newValue) && Date.parse(newValue) >= Date.now());
+        if (isValidDateString(prevValue)) {
+          if (isValidDateString(newValue)) {
+            return true;
+          }
+          if (Date.parse(prevValue) >= Date.now()) {
+            return newValue.toLowerCase() === 'closed';
+          }
+          return newValue.toLowerCase() === 'open until filled';
+        }
+        if (prevValue.toLowerCase() === 'open until filled') {
+          return true;
+        }
+        if (prevValue.toLowerCase() === 'closed') {
+          return (isValidDateString(newValue) && Date.parse(newValue) >= Date.now()) || newValue.toLowerCase() === 'open until filled';
+        }
+        return true;
       case 'application_opening_date':
         if (!isValidDateString(prevValue)) return true;
         return isValidDateString(newValue);
@@ -480,10 +501,7 @@ ${whereClauses}
       case 'number[]':
         return Array.isArray(data) ? (data as Array<unknown>).filter(d => (typeof d === 'number' ? !isNaN(d) : false)).length < 1 : true;
       case 'date':
-        if (typeof data !== 'string' || data.length < 1) return true;
-        // const date = new Date(data);
-        // if (isNaN(date.getTime())) return true;
-        return false;
+        return typeof data !== 'string' || data.length < 1;
       case 'boolean':
         return typeof data !== 'boolean';
       default:

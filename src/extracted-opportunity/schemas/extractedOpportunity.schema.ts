@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Field, FieldSchema } from './field.schema';
 import { HydratedDocument, Schema as SchemaMongoose } from 'mongoose';
-import { getMySQLDateFormatUTC } from '@/_domain/helpers/helperFunctions';
+import { convertToKebabCase, getMySQLDateFormatUTC } from '@/_domain/helpers/helperFunctions';
 import { AutoScraperQueueStatusEnum } from '@/auto-scraper/enums/autoScraperQueueStatus.enum';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 
@@ -29,6 +29,12 @@ export class InterestingField {
 
 export const overwritableFields = ['application_opening_date', 'application_deadline_date', 'application_process_time'] as const;
 
+type ToStringDelegate = (f: string[]) => string;
+const tagsToStringDelegate: ToStringDelegate = f => JSON.stringify(f?.map((f: string) => ({ name: f, slug: convertToKebabCase(f) })) || []);
+const arraysToStringWithTypePropDelegate: ToStringDelegate = f => JSON.stringify(f?.map((f: string) => ({ type: f })) || []);
+const arraysToStringWithNamePropDelegate: ToStringDelegate = f => JSON.stringify(f?.map((f: string) => ({ name: f })) || []);
+const arraysToStringWithNewLineDelegate: ToStringDelegate = f => f?.join(' \r\n+') || '';
+
 export const InterestingFields = {
   opportunity_provider_name: new InterestingField(),
   opportunity_issuer_name: new InterestingField(),
@@ -41,43 +47,50 @@ export const InterestingFields = {
   application_opening_date: new InterestingField(),
   application_deadline_date: new InterestingField(),
 
-  company_eligibility_requirements: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
-  eligible_activities: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
+  company_eligibility_requirements: new InterestingField().setToString(arraysToStringWithNewLineDelegate),
+  eligible_activities: new InterestingField().setToString(arraysToStringWithNewLineDelegate),
 
-  role_eligibility_requirements: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
-  candidate_requirement_tags: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
+  role_eligibility_requirements: new InterestingField().setToString(arraysToStringWithNewLineDelegate),
+  application_process_instructions: new InterestingField().setToString(arraysToStringWithNewLineDelegate),
+  candidate_requirement_tags: new InterestingField().setToString(arraysToStringWithNamePropDelegate),
 
   opportunity_value_proposition: new InterestingField(),
-  opportunitys_grant_types: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ type: f })) || [])),
-  eligibility_requirements: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
-  project_eligibility: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
+  opportunitys_grant_types: new InterestingField().setToString(arraysToStringWithTypePropDelegate),
+  eligibility_requirements: new InterestingField().setToString(arraysToStringWithNamePropDelegate),
+  project_eligibility: new InterestingField().setToString(arraysToStringWithNewLineDelegate),
 
   application_country: new InterestingField(),
   provinces: new InterestingField(),
   provinces_abbreviations: new InterestingField(),
-  municipalities: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
+  municipalities: new InterestingField().setToString(arraysToStringWithNamePropDelegate),
 
   company_size_requirements: new InterestingField(),
   company_revenue_requirements: new InterestingField(),
 
-  ineligibility_reasons: new InterestingField().setToString(f => f?.join(' \r\n+') || ''),
+  ineligibility_reasons: new InterestingField().setToString(arraysToStringWithNewLineDelegate),
 
   cash_upfront: new InterestingField(),
 
   company_reporting_requirements: new InterestingField(),
 
-  industries: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
+  industries: new InterestingField().setToString(arraysToStringWithNamePropDelegate),
 
-  opportunity_categories: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
-  opportunity_subcategories: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
-  keywords: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ name: f })) || [])),
+  opportunity_categories: new InterestingField().setToString(arraysToStringWithNamePropDelegate),
+  opportunity_subcategories: new InterestingField().setToString(arraysToStringWithNamePropDelegate),
+  keywords: new InterestingField().setToString(arraysToStringWithNamePropDelegate),
 
   funding_amount: new InterestingField().setToString(f => f?.toString() ?? ''),
 
-  application_process_type: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ type: f })) || [])),
+  application_process_type: new InterestingField().setToString(arraysToStringWithTypePropDelegate),
   application_process_time: new InterestingField(),
 
   opportunity_insights: new InterestingField().setToString(f => JSON.stringify(f?.map((f: string) => ({ detail: f })) || [])),
+
+  business_type_requirements: new InterestingField().setToString(arraysToStringWithTypePropDelegate),
+  role_length_tags: new InterestingField().setToString(tagsToStringDelegate),
+  role_type_tags: new InterestingField().setToString(tagsToStringDelegate),
+  project_activities_tags: new InterestingField().setToString(tagsToStringDelegate),
+  project_length_tags: new InterestingField().setToString(tagsToStringDelegate),
 };
 
 export type InterestingFieldsKeys = keyof typeof InterestingFields;
@@ -251,6 +264,12 @@ export class ExtractedOpportunity {
   company_reporting_requirements: Field<string[]> = new Field('string[]');
 
   @Prop({ type: FieldSchema })
+  application_process_instructions: Field<string[]> = new Field(
+    'string[]',
+    'where `application_process_instructions` is an array of imperative sentences, instructing the applicant on how to apply for this opportunity.',
+  );
+
+  @Prop({ type: FieldSchema })
   industries: Field<string[]> = new Field(
     'string[]',
     'where `industries` is an array of strings, phrasing what industries this opportunity falls under.' +
@@ -290,10 +309,44 @@ export class ExtractedOpportunity {
   );
 
   @Prop({ type: FieldSchema })
+  business_type_requirements: Field<string[]> = new Field(
+    'string[]',
+    'where `business_type_requirements` is an array of strings, containing the keywords indicating the eligible business types for this opportunity.',
+  );
+
+  @Prop({ type: FieldSchema })
+  role_length_tags: Field<string[]> = new Field(
+    'string[]',
+    "where `role_length_tags` is an array of strings, containing the keywords indicating the eligible applicant's role lengths for this opportunity.",
+  );
+
+  @Prop({ type: FieldSchema })
+  role_type_tags: Field<string[]> = new Field(
+    'string[]',
+    "where `role_type_tags` is an array of strings, containing the keywords indicating the eligible applicant's role types for this opportunity.",
+  );
+
+  @Prop({ type: FieldSchema })
+  project_activities_tags: Field<string[]> = new Field(
+    'string[]',
+    'where `project_activities_tags` is an array of strings, containing the keywords indicating the eligible project activities for this opportunity.',
+  );
+
+  @Prop({ type: FieldSchema })
+  project_length_tags: Field<string[]> = new Field(
+    'string[]',
+    'where `project_length_tags` is an array of strings, containing the keywords indicating the eligible project lengths in period for this opportunity.' +
+      ' Possible values are: "Short Term", "Long Term", "Continuous"',
+  );
+
+  @Prop({ type: FieldSchema })
   opportunity_insights: Field<string[]> = new Field(
     'string[]',
-    'where `opportunity_insights` is an array of strings, stating brief facts to consider about the opportunities that an applicant could have in mind just from reading those bullet points. ' +
-      'Example: `["The following companies are eligible:", "Companies with less than 10 employees", "Companies with less than 1 million in revenue"]`',
+    'where `opportunity_insights` is an array of brief statements that provide essential information ' +
+      'and considerations about opportunities, enabling applicants to grasp key aspects of these opportunities simply by reviewing these summarized points. ' +
+      'Example: `["The following companies are eligible:", "Companies with less than 1 million in revenue", "It’s rare ' +
+      'to find a grant that funds day-to-day operations. We need to find ways to frame our daily work as projects with clear objectives and timeframes. It’s likely ' +
+      'you already have metrics for your projects, you may just not have thought about it in these terms!"]`',
   );
 
   // </editor-fold>

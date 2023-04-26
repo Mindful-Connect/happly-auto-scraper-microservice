@@ -28,6 +28,24 @@ export function newUUID() {
   return uuidv4();
 }
 
+export function convertToKebabCase(str: string) {
+  let ans = '';
+  str = str.trim();
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (char.trim().length === 0) {
+      ans += '-';
+      continue;
+    }
+    if (char === char.toUpperCase()) {
+      ans += char.toLowerCase();
+      continue;
+    }
+    ans += char;
+  }
+  return ans;
+}
+
 export function getCheerioAPIFromHTML(html: string) {
   return cheerio.load(html, {
     scriptingEnabled: false,
