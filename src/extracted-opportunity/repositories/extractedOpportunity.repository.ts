@@ -4,6 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ScrapedOpportunityDto } from '@/happly/dtos/scrapedOpportunity.dto';
 import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
+import { isValidUrl, reassembleUrl } from '@/_domain/helpers/helperFunctions';
 
 @Injectable()
 export class ExtractedOpportunityRepository {
@@ -41,7 +42,7 @@ export class ExtractedOpportunityRepository {
       source_id: doc.queueId,
       name: doc.program_name.data,
       program_site: doc.url,
-      app_link: doc.link_to_application.data,
+      app_link: !isValidUrl(doc.link_to_application.data) ? reassembleUrl(doc.url, doc.link_to_application.data) : doc.link_to_application.data,
       provider: doc.opportunity_provider_name.data,
       description: doc.program_description.data,
       value: doc.opportunity_value_proposition.data,

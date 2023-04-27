@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Field, FieldSchema } from './field.schema';
 import { HydratedDocument, Schema as SchemaMongoose } from 'mongoose';
-import { convertToKebabCase, getMySQLDateFormatUTC } from '@/_domain/helpers/helperFunctions';
+import { convertToKebabCase, getMySQLDateFormatUTC, isValidUri, isValidUrl } from '@/_domain/helpers/helperFunctions';
 import { AutoScraperQueueStatusEnum } from '@/auto-scraper/enums/autoScraperQueueStatus.enum';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 

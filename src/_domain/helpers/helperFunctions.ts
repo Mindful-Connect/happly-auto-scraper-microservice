@@ -87,3 +87,17 @@ export function tryReassembleUrl(appUrl: string, uri: string) {
     throw new Error('Invalid URL');
   }
 }
+
+export function reassembleUrl(appUrl: string, uri: string) {
+  try {
+    const url = new URL(appUrl);
+
+    if (uri.startsWith('/')) {
+      return url.origin + uri;
+    } else {
+      return url.origin + '/' + uri;
+    }
+  } catch (e) {
+    return uri;
+  }
+}
