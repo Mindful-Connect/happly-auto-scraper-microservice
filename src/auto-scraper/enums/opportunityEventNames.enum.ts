@@ -3,4 +3,5 @@ export enum OpportunityEventNamesEnum {
   ExtractionCompleted = 'extraction.completed',
   OpportunityExtractionPoolRelease = 'opportunity.extraction.pool.release',
   OpportunityExtractionRecurseNeeded = 'opportunity.extraction.recurseNeeded',
+  OpportunityDeleted = 'opportunity.deleted',
 }

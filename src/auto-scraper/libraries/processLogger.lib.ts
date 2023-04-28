@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Scope } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ExtractionProcessUpdateDto } from '@/auto-scraper/dtos/extractionProcessUpdate.dto';
 import { OpportunityEventNamesEnum } from '@/auto-scraper/enums/opportunityEventNames.enum';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExtractedOpportunityDocument } from '@/extracted-opportunity/schemas/extractedOpportunity.schema';
 
-@Injectable()
+@Injectable({ scope: Scope.TRANSIENT })
 export class ProcessLogger {
   private shouldLogInfo = true;
   constructor(private configService: ConfigService, private eventEmitter: EventEmitter2) {
@@ -17,8 +17,8 @@ export class ProcessLogger {
     this._extractedOpportunityDocument = value;
   }
 
-  broadcast(payload: ExtractionProcessUpdateDto) {
-    if (payload.detail) this.debug(payload.detail);
+  broadcast(payload: ExtractionProcessUpdateDto, ...otherArgs) {
+    if (payload.detail) this.debug(payload.detail, ...otherArgs);
 
     this.eventEmitter.emit(OpportunityEventNamesEnum.ExtractionProcessUpdate, payload);
   }

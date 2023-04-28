@@ -19,23 +19,23 @@ import { chooseModelByTokens } from '@/openai/helpers/openai.helper';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 import * as https from 'https';
 import * as crypto from 'crypto';
+import { Injectable, Scope } from '@nestjs/common';
 
+@Injectable({ scope: Scope.TRANSIENT })
 export class ExtractorService {
   public url: string;
   public extractedOpportunityDocument: ExtractedOpportunityDocument;
   public isNested: boolean;
+  public gptAbortController: AbortController | null = null;
 
-  private systemMessage =
+  private static SystemMessage =
     'Given a chunk of HTML text, extract information asked by the user, and reply only in JSON format. your replies must be fully parsable by JSON.parse method in JavaScript.';
 
-  private segmentSplittingIdentifiers: string[] = ['<h1', '<h2', '<h3', '<p', '. '];
+  private static SegmentSplittingIdentifiers: string[] = ['<h1', '<h2', '<h3', '<p', '. '];
 
-  constructor(
-    private chatGPTService: ChatGPTService,
-    private eventEmitter: EventEmitter2,
-    public processLogger: ProcessLogger,
-    extractingOpportunitiesQueueItem: ExtractingOpportunitiesQueueItem,
-  ) {
+  constructor(private chatGPTService: ChatGPTService, private eventEmitter: EventEmitter2, public processLogger: ProcessLogger) {}
+
+  setExtractingOpportunityQueueItem(extractingOpportunitiesQueueItem: ExtractingOpportunitiesQueueItem) {
     this.url = extractingOpportunitiesQueueItem.url;
     this.extractedOpportunityDocument = extractingOpportunitiesQueueItem.extractingOpportunityDocument;
     this.isNested = extractingOpportunitiesQueueItem.isNested;
@@ -76,8 +76,10 @@ export class ExtractorService {
     let stripped: string;
     try {
       stripped = await this.getStrippedBodyHTML($);
-      this.processLogger.info('Stripped the HTML body... 🫣 to make it shorter for ChatGPT ✨', { stripped });
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 2).addDetail('Stripped the HTML body... 🫣'));
+      this.processLogger.broadcast(
+        new ExtractionProcessUpdateDto(this.url, 2).addDetail('Stripped the HTML body... 🫣 to make it shorter for ChatGPT ✨'),
+        { stripped },
+      );
     } catch (e) {
       console.error('Could not strip the HTML body... 🫣', e);
       this.extractedOpportunityDocument.errorDetails = 'Could not strip the HTML body... 🫣';
@@ -88,18 +90,25 @@ export class ExtractorService {
 
     const chunks = this.segmentTheChunk(stripped);
     let fragments = chunks.flat(<10000>Infinity).filter(c => c !== '') as string[];
-    this.processLogger.info('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️', {
-      fragments,
-    });
     this.processLogger.broadcast(
       new ExtractionProcessUpdateDto(this.url, 2).addDetail('Segmented the HTML chunk into smaller chunks if necessary... 🪄🗃️'),
+      { fragments },
     );
 
+    let missingFieldsInGPTResponseCount = 0;
     let retriesCount = 0;
     const maxRetries = 2;
     const fragmentsRemember = [...fragments];
     let awaitingRetriesBecauseMissingFields = 0; // This is a hacky way to retry the extraction if ChatGPT misses some fields due to lack of tokens
     while (fragments.length > 0 || awaitingRetriesBecauseMissingFields > 0) {
+      if (missingFieldsInGPTResponseCount > 3) {
+        this.processLogger.broadcast(
+          new ExtractionProcessUpdateDto(this.url).addDetail(
+            "ChatGPT missed too many fields too many times. There's something wrong with the HTML... " +
+              'Maybe the page does not have relative information about one specific opportunity 🤔',
+          ),
+        );
+      }
       if (fragments.length === 0 && awaitingRetriesBecauseMissingFields > 0) {
         this.processLogger.broadcast(
           new ExtractionProcessUpdateDto(this.url, 1).addDetail(
@@ -111,8 +120,9 @@ export class ExtractorService {
       }
 
       const requestingFields = this.reviseRequestingFields(this.getRequestingFields());
-      this.processLogger.info('Deciding which missing fields to request... 🔍📦', { requestingFields });
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1));
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1).addDetail('Deciding which missing fields to request... 🔍📦'), {
+        requestingFields,
+      });
 
       if (requestingFields.length === 0) {
         this.processLogger.info('No more missing fields to request... 📦📦📦');
@@ -135,7 +145,7 @@ export class ExtractorService {
 
       while (
         fragments.length > 0 &&
-        tokensLimitPerRequest >= this.countTokens([this.systemMessage, this.getUserMessage(readyToBeSent.join('') + fragments[0])])
+        tokensLimitPerRequest >= this.countTokens([ExtractorService.SystemMessage, this.getUserMessage(readyToBeSent.join('') + fragments[0])])
       ) {
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 1).addDetail('Gathering chunks to be sent to ChatGPT... 🚚'));
         readyToBeSent.push(fragments.shift());
@@ -150,7 +160,7 @@ export class ExtractorService {
 
       const userMessage = this.getUserMessage(readyToBeSent.join(''));
 
-      const totalMessagesToken = this.countTokens([this.systemMessage, userMessage]);
+      const totalMessagesToken = this.countTokens([ExtractorService.SystemMessage, userMessage]);
 
       const [gptModel, tokenLimit] = chooseModelByTokens(totalMessagesToken, requestingFields.length);
 
@@ -158,13 +168,13 @@ export class ExtractorService {
         this.processLogger.broadcast(
           new ExtractionProcessUpdateDto(this.url, 10).addDetail('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳'),
         );
-        console.warn('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳');
-        const gptResponse = await this.chatGPTService.getResponse({
+        this.gptAbortController = new AbortController();
+        const gptResponse = await this.chatGPTService.getResponse(this.gptAbortController, {
           model: gptModel,
           messages: [
             {
               role: 'system',
-              content: this.systemMessage,
+              content: ExtractorService.SystemMessage,
             },
             {
               role: 'user',
@@ -179,8 +189,7 @@ export class ExtractorService {
           n: 1,
           stream: false,
         });
-
-        // this.rateLimitTokenCounter += gptResponse.usage.total_tokens;
+        this.gptAbortController = null;
 
         this.processLogger.info(
           'Received response from ChatGPT... ✅🧠🤖 | requestingFields.length = ' +
@@ -200,6 +209,8 @@ export class ExtractorService {
         if (finishReason !== GPTFinishReason.STOP) {
           extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
           extractedOpportunityDocument.errorDetails = `ChatGPT did not finish successfully... ❌🧠🤖 Reason: ${finishReason}`;
+
+          missingFieldsInGPTResponseCount++;
 
           this.processLogger.info(extractedOpportunityDocument.errorDetails, gptResponse);
           continue;
@@ -240,16 +251,25 @@ export class ExtractorService {
           }
         });
 
-        if (
-          maxRetries > retriesCount &&
-          (this.areAnyFieldsMissing(Object.keys(response), requestingFields) || this.getRequestingFields().length > 10)
-        ) {
-          awaitingRetriesBecauseMissingFields++;
-          retriesCount++;
+        // Check if scraping round is finished
+        if (fragments.length === 0) {
+          if (this.getRequestingFields().length > 10 && maxRetries > retriesCount) {
+            awaitingRetriesBecauseMissingFields++;
+            retriesCount++;
+          }
+        }
+
+        // Count the times that GPT missed some fields
+        if (this.areTooManyFieldsMissingInGPTResponse(Object.keys(response), requestingFields)) {
+          missingFieldsInGPTResponseCount++;
         }
 
         this.processLogger.broadcast(new ExtractionProcessUpdateDto(this.url, 5).addDetail('Saved the response in the database... ✅📦🗃️'));
       } catch (e) {
+        if (e.name === 'CanceledError') {
+          this.processLogger.info('ChatGPT request was canceled... ❌🧠🤖', e);
+          return;
+        }
         extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.GPT_ERROR;
         extractedOpportunityDocument.errorDetails = `ChatGPT failed to respond... ❌🧠🤖 Reason: ${e.message ?? 'Unknown'}`;
 
@@ -337,12 +357,16 @@ export class ExtractorService {
     }
   }
 
-  private areAnyFieldsMissing(responseKeysFromGPT: string[], requestingFields: string[]): boolean {
+  private areTooManyFieldsMissingInGPTResponse(responseKeysFromGPT: string[], requestingFields: string[]): boolean {
+    let missingFields = 0;
+    const threshold = requestingFields.length / 2;
     for (const field of requestingFields) {
       if (!responseKeysFromGPT.includes(field)) {
-        return true;
+        missingFields++;
       }
+      if (missingFields > threshold) return true;
     }
+    return missingFields > threshold;
   }
 
   private shouldHardOverwrite(fieldName: (typeof overwritableFields)[number], fieldType: FieldPossibleTypesString, prevValue: any, newValue: any) {
@@ -409,10 +433,10 @@ export class ExtractorService {
 
   private segmentTheChunk(htmlChunk: string, separatorIndex = 0): NestedStringArray {
     // should i chunk it more?
-    const numOfTokens = this.countTokens([this.systemMessage, this.getUserMessage(htmlChunk)]);
+    const numOfTokens = this.countTokens([ExtractorService.SystemMessage, this.getUserMessage(htmlChunk)]);
     if (TokenLimits['gpt-3.5-turbo'] / 2 < numOfTokens) {
-      const nextSeparator = this.segmentSplittingIdentifiers.length - 1 === separatorIndex ? separatorIndex : separatorIndex + 1;
-      const { success, segments } = this.segmentMethod(htmlChunk, this.segmentSplittingIdentifiers[separatorIndex]);
+      const nextSeparator = ExtractorService.SegmentSplittingIdentifiers.length - 1 === separatorIndex ? separatorIndex : separatorIndex + 1;
+      const { success, segments } = this.segmentMethod(htmlChunk, ExtractorService.SegmentSplittingIdentifiers[separatorIndex]);
       if (success) {
         return segments.map(s => this.segmentTheChunk(s, nextSeparator));
       }

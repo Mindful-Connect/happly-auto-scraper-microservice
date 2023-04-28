@@ -4,7 +4,7 @@ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ChatGPTService } from '@/openai/services/chatgpt.service';
-import { getCheerioAPIFromHTML, isValidUrl, tryReassembleUrl } from '@/_domain/helpers/helperFunctions';
+import { getCheerioAPIFromHTML, getMySQLDateFormatUTC, isValidUrl, tryReassembleUrl } from '@/_domain/helpers/helperFunctions';
 import { AutoScraperQueueStatusEnum } from '@/auto-scraper/enums/autoScraperQueueStatus.enum';
 import { ExtractorService } from './extractor.service';
 import { OpportunityEventNamesEnum } from '@/auto-scraper/enums/opportunityEventNames.enum';
@@ -13,23 +13,19 @@ import { ProcessLogger } from '../libraries/processLogger.lib';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OpportunityPortalService } from '@/happly/services/opportunityPortal.service';
 import { QueueItem } from '@/auto-scraper/dtos/request/submitURLs.request.dto';
-import { ExtractingOpportunitiesQueueItem } from '@/auto-scraper/models/ExtractingOpportunitiesQueueItem.model';
 import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 import { ExtractedOpportunityRepository } from '@/extracted-opportunity/repositories/extractedOpportunity.repository';
 import * as https from 'https';
 import * as crypto from 'crypto';
+import { ExtractionProcessManager } from '@/auto-scraper/libraries/extractionProcessManager.lib';
+import { ModuleRef } from '@nestjs/core';
 
 @Injectable()
 export class AutoScraperService {
-  private readonly extractingOpportunitiesQueue: ExtractingOpportunitiesQueueItem[] = [];
-  private readonly currentRunningExtractionProcesses: Record<string, ExtractorService> = {};
-
-  private rateLimitTokenCounter = 0;
-  private rateLimitTokenPerMinute = 40000;
-  private rateLimitRequestPerMinute = 200;
-
   constructor(
+    private moduleRef: ModuleRef,
+    private readonly extractionProcessManager: ExtractionProcessManager,
     private readonly extractedOpportunityRepository: ExtractedOpportunityRepository,
     private chatGPTService: ChatGPTService,
     private eventEmitter: EventEmitter2,
@@ -37,8 +33,87 @@ export class AutoScraperService {
     private opportunityPortalService: OpportunityPortalService,
   ) {}
 
+  async submitQueueItem(queueItem: QueueItem): Promise<any> {
+    const { url, name, queueId, source } = queueItem;
+    let extractedOpportunityDocument = await this.extractedOpportunityRepository.findOpportunityByURL(url);
+    if (extractedOpportunityDocument === null) {
+      console.info('No entry found for this URL. Creating a new one... 🆕✨', url);
+      extractedOpportunityDocument = await this.extractedOpportunityRepository.createOpportunity(
+        new ExtractedOpportunity({
+          url,
+          name,
+          queueId,
+          source,
+          clientRenderedPage: false,
+        }),
+      );
+    } else {
+      console.info('Entry found for this URL. Updating the status... 🔄', url);
+    }
+
+    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
+
+    let $: cheerio.CheerioAPI;
+
+    try {
+      const pageHTML = await axios.get(url, {
+        httpsAgent: new https.Agent({
+          // for self signed you could also add
+          // rejectUnauthorized: false,
+
+          // allow legacy server
+          secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
+        }),
+      });
+
+      $ = getCheerioAPIFromHTML(pageHTML.data);
+      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
+    } catch (e) {
+      console.error('Error while fetching the page. Marking it as FAILED_TO_PROCESS... 🚫', url);
+      extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.FAILED_TO_PROCESS;
+
+      // the page is not accessible.So we need to review it manually
+      extractedOpportunityDocument.errorDetails = 'Page is not accessible';
+
+      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
+      return;
+    }
+
+    // check if this is a CRP page
+    extractedOpportunityDocument.clientRenderedPage = $('p').length < 2;
+    await saveSafely(extractedOpportunityDocument);
+
+    // if there are too many extraction processes running, put it in the queue
+    if (!this.extractionProcessManager.hasSpaceInRunningProcesses()) {
+      this.processLogger.broadcast(
+        new ExtractionProcessUpdateDto(url).queued().addDetail('Too many extraction processes running. Putting it in the queue... 📝'),
+      );
+      this.extractionProcessManager.queue.push({
+        url,
+        extractingOpportunityDocument: extractedOpportunityDocument,
+        isNested: false,
+      });
+      return;
+    }
+
+    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 20).addDetail('Running extraction process immediately... 🏃☑️'));
+
+    const extractorService = await this.moduleRef.resolve(ExtractorService);
+    extractorService.setExtractingOpportunityQueueItem({
+      url,
+      extractingOpportunityDocument: extractedOpportunityDocument,
+      isNested: false,
+    });
+    await this.extractionProcessManager.addProcessToPool(extractedOpportunityDocument.url, extractorService);
+    extractorService.extractOpportunity().catch(e => {
+      console.error('Could not extract the opportunity! ⚠️', e);
+      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
+    });
+  }
+
   @Cron(CronExpression.EVERY_30_MINUTES)
   async handleCron() {
+    return; // TODO: remove this line to enable cron
     const newQueuedOpportunities = await this.opportunityPortalService.getQueuedOpportunities();
 
     if (newQueuedOpportunities.length > 0) {
@@ -59,20 +134,22 @@ export class AutoScraperService {
       return this.processLogger.error('No extractedOpportunityDocument was provided!', 'extractedOpportunityDocument', extractedOpportunityDocument);
 
     // Don't automatically submit to the panel if the source is from the existing expired opportunities
-    if (extractedOpportunityDocument.source === QueueItemSourceEnum.ExpiredOpportunity) return;
+    // Or if the extracted opportunity was already submitted once
+    if (extractedOpportunityDocument.source === QueueItemSourceEnum.ExpiredOpportunity || extractedOpportunityDocument.submittedAt) return;
 
     // wait a bit to make sure async processes are done
     await new Promise(resolve => setTimeout(resolve, 5000));
 
-    const anyRelatedProcessQueued = this.extractingOpportunitiesQueue.some(
+    const anyRelatedProcessQueued = this.extractionProcessManager.queue.some(
       p => p.extractingOpportunityDocument.queueId === extractedOpportunityDocument.queueId,
     );
     if (anyRelatedProcessQueued) return;
 
-    const anyRelatedProcessRunning = Object.keys(this.currentRunningExtractionProcesses).some(
+    const currentRunningExtractionProcesses = this.extractionProcessManager.currentRunningProcesses;
+    const anyRelatedProcessRunning = Object.keys(currentRunningExtractionProcesses).some(
       p =>
-        this.currentRunningExtractionProcesses[p].extractedOpportunityDocument.queueId === extractedOpportunityDocument.queueId &&
-        this.currentRunningExtractionProcesses[p].extractedOpportunityDocument.url !== extractedOpportunityDocument.url, // Only if the url is different (related URLs)
+        currentRunningExtractionProcesses[p].extractedOpportunityDocument.queueId === extractedOpportunityDocument.queueId &&
+        currentRunningExtractionProcesses[p].url !== extractedOpportunityDocument.url, // Only if the url is different (related URLs)
     );
     if (anyRelatedProcessRunning) return;
 
@@ -82,6 +159,7 @@ export class AutoScraperService {
         .addDetail('Submitting data to the portal... 🚀 - Ready to be reviewed!'),
     );
     await this.opportunityPortalService.submitNewScrapedOpportunity(extractedOpportunityDocument);
+    extractedOpportunityDocument.submittedAt = getMySQLDateFormatUTC();
   }
 
   @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease)
@@ -90,13 +168,8 @@ export class AutoScraperService {
     processLogger.info('Releasing the pool of processes for the next item in the queue... 🏊‍♂️🏊‍♂️🏊‍♂️');
 
     if (extractedOpportunityDocument) {
-      delete this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId];
-      processLogger.info(
-        'Removed the process from the current running processes list! 🗑️',
-        'queueId',
-        extractedOpportunityDocument.queueId,
-        this.currentRunningExtractionProcesses,
-      );
+      await this.extractionProcessManager.removeProcessFromPool(extractedOpportunityDocument.url);
+      processLogger.info('Removed the process from the current running processes list! 🗑️', 'url', extractedOpportunityDocument.url);
 
       if (extractedOpportunityDocument.errorDetails) {
         processLogger.broadcast(
@@ -117,14 +190,15 @@ export class AutoScraperService {
         });
     }
 
-    if (this.extractingOpportunitiesQueue.length > 0) {
-      processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥', this.extractingOpportunitiesQueue);
-      const nextItem = this.extractingOpportunitiesQueue.shift();
+    if (this.extractionProcessManager.queue.length > 0) {
+      processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥', this.extractionProcessManager.queue);
+      const nextItem = this.extractionProcessManager.queue.shift();
 
       const { extractingOpportunityDocument } = nextItem;
 
-      const extractorService = new ExtractorService(this.chatGPTService, this.eventEmitter, processLogger, nextItem);
-      this.currentRunningExtractionProcesses[extractingOpportunityDocument.queueId] = extractorService;
+      const extractorService = await this.moduleRef.resolve(ExtractorService);
+      extractorService.setExtractingOpportunityQueueItem(nextItem);
+      await this.extractionProcessManager.addProcessToPool(extractingOpportunityDocument.url, extractorService);
       extractorService
         .extractOpportunity()
         .catch(() =>
@@ -150,14 +224,12 @@ export class AutoScraperService {
         }
       }
       anyRelevantLinkFound = true;
-      if (Object.keys(this.currentRunningExtractionProcesses).length >= 10) {
-        this.processLogger.info(
+      if (!this.extractionProcessManager.hasSpaceInRunningProcesses()) {
+        this.processLogger.broadcast(
+          new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).queued(),
           'The pool of processes is full. Adding the item to the queue... 🚫🏊‍♂️🏊‍♂️🏊‍♂️',
-          this.currentRunningExtractionProcesses,
-          this.extractingOpportunitiesQueue,
         );
-        this.processLogger.broadcast(new ExtractionProcessUpdateDto(extractedOpportunityDocument.url).queued());
-        this.extractingOpportunitiesQueue.push({
+        this.extractionProcessManager.queue.push({
           url: link,
           extractingOpportunityDocument: extractedOpportunityDocument,
           isNested: true,
@@ -169,15 +241,17 @@ export class AutoScraperService {
         new ExtractionProcessUpdateDto(extractedOpportunityDocument.url)
           .unqueued()
           .addDetail('Running extraction process for relevant URL immediately... 🏃🏃☑️'),
+        link,
+        extractedOpportunityDocument,
       );
-      this.processLogger.info('Running extraction process for relevant URL immediately... 🏃🏃☑️', link, extractedOpportunityDocument);
 
-      const extractorService = new ExtractorService(this.chatGPTService, this.eventEmitter, this.processLogger, {
+      const extractorService = await this.moduleRef.resolve(ExtractorService);
+      extractorService.setExtractingOpportunityQueueItem({
         url: link,
         extractingOpportunityDocument: extractedOpportunityDocument,
         isNested: true,
       });
-      this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId] = extractorService;
+      await this.extractionProcessManager.addProcessToPool(extractedOpportunityDocument.url, extractorService);
       extractorService.extractOpportunity().catch(e => {
         console.error('Could not extract the nested opportunity! ⚠️', e);
         this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
@@ -194,84 +268,20 @@ export class AutoScraperService {
     }
   }
 
-  async submitQueueItem(queueItem: QueueItem): Promise<any> {
-    const { url, name, queueId, source } = queueItem;
-    // imagining all the webpages are not using javascript to render. (TODO: fix puppeteer)
+  @OnEvent(OpportunityEventNamesEnum.OpportunityDeleted)
+  async onOpportunityDeleted(queueId: string) {
+    // Remove all the queued items relate to this queueId
+    this.extractionProcessManager.queue = this.extractionProcessManager.queue.filter(i => i.extractingOpportunityDocument.queueId !== queueId);
 
-    let extractedOpportunityDocument = await this.extractedOpportunityRepository.findOpportunityByURL(url);
-    if (extractedOpportunityDocument === null) {
-      this.processLogger.info('No entry found for this URL. Creating a new one... 🆕✨', url);
-      extractedOpportunityDocument = await this.extractedOpportunityRepository.createOpportunity(
-        new ExtractedOpportunity({
-          url,
-          name,
-          queueId,
-          source,
-          clientRenderedPage: false,
-        }),
-      );
-    } else {
-      this.processLogger.info('Entry found for this URL. Updating the status... 🔄', url);
-    }
-
-    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 10));
-
-    let $: cheerio.CheerioAPI;
-
-    try {
-      const pageHTML = await axios.get(url, {
-        httpsAgent: new https.Agent({
-          // for self signed you could also add
-          // rejectUnauthorized: false,
-
-          // allow legacy server
-          secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
-        }),
-      });
-
-      $ = getCheerioAPIFromHTML(pageHTML.data);
-      this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 5));
-    } catch (e) {
-      this.processLogger.info('Error while fetching the page. Marking it as FAILED_TO_PROCESS... 🚫', url);
-      extractedOpportunityDocument.status = AutoScraperQueueStatusEnum.FAILED_TO_PROCESS;
-
-      // the page is not accessible.So we need to review it manually
-      extractedOpportunityDocument.errorDetails = 'Page is not accessible';
-
-      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument);
-      return;
-    }
-
-    // check if this is a CRP page
-    extractedOpportunityDocument.clientRenderedPage = $('p').length < 2;
-    await saveSafely(extractedOpportunityDocument);
-
-    this.processLogger.info('Checking if this extraction process can be ran immediately... 🏃🔍', url);
-    // if there are too many extraction processes running, put it in the queue
-    if (Object.keys(this.currentRunningExtractionProcesses).length >= 10) {
-      this.processLogger.debug(this.currentRunningExtractionProcesses);
-      this.processLogger.broadcast(
-        new ExtractionProcessUpdateDto(url).queued().addDetail('Too many extraction processes running. Putting it in the queue... 📝'),
-      );
-      this.extractingOpportunitiesQueue.push({
-        url,
-        extractingOpportunityDocument: extractedOpportunityDocument,
-        isNested: false,
-      });
-      return;
-    }
-
-    this.processLogger.broadcast(new ExtractionProcessUpdateDto(url, 20).addDetail('Running extraction process immediately... 🏃☑️'));
-
-    const extractorService = new ExtractorService(this.chatGPTService, this.eventEmitter, this.processLogger, {
-      url,
-      extractingOpportunityDocument: extractedOpportunityDocument,
-      isNested: false,
+    Object.values(this.extractionProcessManager.currentRunningProcesses).forEach(c => {
+      if (c.extractedOpportunityDocument.queueId === queueId) {
+        this.extractionProcessManager.removeProcessFromPool(c.url, true);
+      }
     });
-    this.currentRunningExtractionProcesses[extractedOpportunityDocument.queueId] = extractorService;
-    extractorService.extractOpportunity().catch(e => {
-      console.error('Could not extract the opportunity! ⚠️', e);
-      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
-    });
+
+    const deleteResult = await this.extractedOpportunityRepository
+      .deleteByQueueId(queueId)
+      .catch(e => console.error('Deleting Opportunity errored!', e));
+    if (deleteResult) console.info('Extracted Opportunity record Deletion. 🗑️ `deletedCount`: ', deleteResult.deletedCount);
   }
 }

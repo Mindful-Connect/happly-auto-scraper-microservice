@@ -7,9 +7,10 @@ import { OpenAIRequest } from '../openai.types';
 export class ChatGPTService {
   constructor(private configService: ConfigService) {}
 
-  async getResponse(payload: OpenAIRequest) {
+  async getResponse(abortController: AbortController, payload: OpenAIRequest) {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     const res = await axios.post('https://api.openai.com/v1/chat/completions', payload, {
+      signal: abortController.signal,
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },

@@ -4,7 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ScrapedOpportunityDto } from '@/happly/dtos/scrapedOpportunity.dto';
 import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
-import { isValidUrl, reassembleUrl } from '@/_domain/helpers/helperFunctions';
+import { isValidDateString, isValidUrl, normalizeDateFromString, reassembleUrl } from '@/_domain/helpers/helperFunctions';
 
 @Injectable()
 export class ExtractedOpportunityRepository {
@@ -47,8 +47,12 @@ export class ExtractedOpportunityRepository {
       description: doc.program_description.data,
       value: doc.opportunity_value_proposition.data,
       amount: interestingFields.funding_amount.stringify(doc.funding_amount.data),
-      open_date: doc.application_opening_date.data,
-      deadlines: doc.application_deadline_date.data,
+      open_date: isValidDateString(doc.application_opening_date.data)
+        ? normalizeDateFromString(doc.application_opening_date.data)
+        : doc.application_opening_date.data,
+      deadlines: isValidDateString(doc.application_deadline_date.data)
+        ? normalizeDateFromString(doc.application_deadline_date.data)
+        : doc.application_deadline_date.data,
       process_time: doc.application_process_time.data,
       comp_req: interestingFields.company_eligibility_requirements.stringify(doc.company_eligibility_requirements.data), // TODO
       project_eligibility: interestingFields.project_eligibility.stringify(doc.project_eligibility.data), // TODO
@@ -108,5 +112,9 @@ export class ExtractedOpportunityRepository {
       project_length_tags: interestingFields.project_length_tags.stringify(doc.project_length_tags.data), // TODO
       insights: interestingFields.opportunity_insights.stringify(doc.opportunity_insights.data),
     });
+  }
+
+  deleteByQueueId(queueId: string) {
+    return this.extractedOpportunityModel.deleteOne({ queueId }).exec();
   }
 }

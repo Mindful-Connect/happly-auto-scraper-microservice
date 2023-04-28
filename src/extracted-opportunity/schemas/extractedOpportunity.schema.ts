@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Field, FieldSchema } from './field.schema';
 import { HydratedDocument, Schema as SchemaMongoose } from 'mongoose';
-import { convertToKebabCase, getMySQLDateFormatUTC, isValidUri, isValidUrl } from '@/_domain/helpers/helperFunctions';
+import { convertToKebabCase, getMySQLDateFormatUTC } from '@/_domain/helpers/helperFunctions';
 import { AutoScraperQueueStatusEnum } from '@/auto-scraper/enums/autoScraperQueueStatus.enum';
 import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
 
@@ -15,17 +15,6 @@ export class InterestingField {
     return this;
   }
 }
-
-// TODO: use a decorator to define `InterestingFields` instead of making an object for it manually.
-// export const InterestingFieldDecorator = ({
-//   shouldOverwrite = false,
-//   toString,
-// }: {
-//   shouldOverwrite?: boolean;
-//   toString?: (fieldValue: any[]) => string;
-// }) => {
-//   return Reflect.metadata('InterestingField', new InterestingField(shouldOverwrite).setToString(toString));
-// };
 
 export const overwritableFields = ['application_opening_date', 'application_deadline_date', 'application_process_time'] as const;
 
@@ -350,6 +339,10 @@ export class ExtractedOpportunity {
   );
 
   // </editor-fold>
+
+  @Prop({ default: null })
+  submittedAt: string;
+
   @Prop({ default: getMySQLDateFormatUTC() })
   createdAt: string;
 

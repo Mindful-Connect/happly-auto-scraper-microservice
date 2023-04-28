@@ -24,6 +24,18 @@ export function getMySQLDateFormatUTC() {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
+export function normalizeDateFromString(date: string) {
+  const dateObject = new Date(date);
+  if (isNaN(dateObject.getTime())) {
+    return null;
+  }
+  const year = dateObject.getFullYear();
+  const month = ('0' + (dateObject.getMonth() + 1)).slice(-2);
+  const day = ('0' + dateObject.getDate()).slice(-2);
+
+  return `${year}-${month}-${day}`;
+}
+
 export function newUUID() {
   return uuidv4();
 }
