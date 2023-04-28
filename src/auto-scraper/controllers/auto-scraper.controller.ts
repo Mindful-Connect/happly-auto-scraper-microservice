@@ -5,23 +5,13 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { fromEvent, map, Observable } from 'rxjs';
 import { OpportunityEventNamesEnum } from '@/auto-scraper/enums/opportunityEventNames.enum';
 import { AuthTokenGuard } from '@/_domain/guards/authToken.guard';
-import { OpportunityPortalService } from '@/happly/services/opportunityPortal.service';
 
 @Controller()
 @UseGuards(AuthTokenGuard)
 export class AutoScraperController {
-  constructor(
-    private readonly autoScraperService: AutoScraperService,
-    private eventEmitter: EventEmitter2,
-    private opportunityPortalService: OpportunityPortalService,
-  ) {}
+  constructor(private readonly autoScraperService: AutoScraperService, private eventEmitter: EventEmitter2) {}
 
-  @Get('/test')
-  async test() {
-    this.opportunityPortalService.test();
-  }
-
-  @Post('/opportunities')
+  @Post('/scrape')
   async submitURLs(@Body() urlsRequestDto: SubmitURLsRequestDto): Promise<SubmitURLsRequestDto> {
     console.info('Submitting a list of URLs 🔗📃: ', urlsRequestDto);
     urlsRequestDto.queueItems.forEach(queueItem => {
@@ -37,7 +27,7 @@ export class AutoScraperController {
     return urlsRequestDto;
   }
 
-  @Sse('/opportunities/sse')
+  @Sse('/scrape/sse')
   async listenForUpdates(): Promise<Observable<MessageEvent>> {
     return fromEvent(this.eventEmitter, OpportunityEventNamesEnum.ExtractionProcessUpdate).pipe(
       map(payload => ({
