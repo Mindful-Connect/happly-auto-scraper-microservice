@@ -169,7 +169,7 @@ export class ExtractorService {
           new ExtractionProcessUpdateDto(this.url, 10).addDetail('Sending request to ChatGPT... 🧠🤖 This might take a few seconds ⏳'),
         );
         this.gptAbortController = new AbortController();
-        const gptResponse = await this.chatGPTService.getResponse(this.gptAbortController, {
+        const gptResponse = await this.chatGPTService.getResponseWithBackoffForRateLimit(this.gptAbortController, {
           model: gptModel,
           messages: [
             {
