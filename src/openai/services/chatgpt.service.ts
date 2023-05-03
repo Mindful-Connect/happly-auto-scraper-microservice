@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { OpenAIRequest } from '../openai.types';
+import axios from 'axios';
 
 type BackoffExponentiallyOptions = {
   maxRetries: number;
@@ -33,7 +33,7 @@ export class ChatGPTService {
     try {
       return await this.getResponse(abortController, payload);
     } catch (e) {
-      if (e.response && e.response.status === 429 && currentRetry < backoffExponentiallyOptions.maxRetries) {
+      if (axios.isAxiosError(e) && e.response && e.response.status === 429 && currentRetry < backoffExponentiallyOptions.maxRetries) {
         const delay = (1 << currentRetry) * backoffExponentiallyOptions.retryDelay;
         await new Promise(resolve => setTimeout(resolve, delay));
 

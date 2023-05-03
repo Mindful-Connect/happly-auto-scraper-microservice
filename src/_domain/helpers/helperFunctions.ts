@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import * as cheerio from 'cheerio';
+import { minify } from 'html-minifier-terser';
 
 /**
  * Get the current date and time in the MySQL date format in UTC.
@@ -82,6 +83,21 @@ export function isValidUrl(url: string) {
   }
 }
 
+export function isValidRelevantLink(link: string | null | undefined, _programURL: string) {
+  try {
+    const relevantLinkURL = new URL(link);
+    const programURL = new URL(_programURL);
+
+    // If the relevant link is not in the same domain as the program url, then it's valid.
+    // OR, If the relevant link is in the same domain as the program url, then it's valid if the path is not the same as the program url.
+    return relevantLinkURL.host !== programURL.host || (relevantLinkURL.pathname !== programURL.pathname && relevantLinkURL.pathname.length > 1);
+  } catch (_) {
+    // If the relevant link is not a valid URL, then it's valid if it's a valid URI.
+    // differences between a URI and a URL: https://stackoverflow.com/questions/176264/what-is-the-difference-between-a-uri-a-url-and-a-urn
+    return isValidUri(link);
+  }
+}
+
 export function isValidDateString(date: string) {
   return !isNaN(Date.parse(date));
 }
@@ -112,4 +128,51 @@ export function reassembleUrl(appUrl: string, uri: string) {
   } catch (e) {
     return uri;
   }
+}
+
+/**
+ * Strips the body of the HTML document of all scripts, styles, and other unnecessary tags.
+ * This is done to reduce the size of the HTML document to be sent to GPT. Hence, reducing the token count.
+ * @param _$
+ * @private
+ */
+export async function getStrippedBodyHTML(_$: cheerio.CheerioAPI) {
+  _$('body script, body footer, body noscript, body style, body link, body header, body svg').remove();
+
+  const strippedBody = await minify(_$('body').html(), {
+    collapseWhitespace: true,
+    removeComments: true,
+    removeEmptyElements: true,
+    removeEmptyAttributes: true,
+    removeOptionalTags: true,
+    removeRedundantAttributes: true,
+  });
+
+  const $ = cheerio.load(strippedBody, {}, false);
+
+  $('*').each(function (i, elem) {
+    if (elem.hasOwnProperty('attribs')) {
+      elem = elem as cheerio.Element;
+      if (!elem.attribs.href || elem.attribs.href === '#') {
+        elem.attribs = {};
+        return;
+      }
+      elem.attribs = {
+        href: elem.attribs.href,
+      };
+    }
+  });
+
+  $('div, section, table, aside').each((index, element) => {
+    if (!element.childNodes.find(c => c.type === 'text')) {
+      $(element).unwrap();
+      if (element.children.length === 0) {
+        $(element).remove();
+      } else {
+        $(element).children().unwrap();
+      }
+    }
+  });
+
+  return $.html();
 }

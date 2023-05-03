@@ -13,12 +13,12 @@ export class ExtractedOpportunityController {
 
   @Get('/')
   async getOpportunities(): Promise<ExtractedOpportunity[]> {
-    return await this.extractedOpportunityRepository.getOpportunities();
+    return await this.extractedOpportunityRepository.findAll();
   }
 
   @Get('/:queueId')
   async getOpportunityByQueueId(@Param('queueId') queueId: string) {
-    const doc = await this.extractedOpportunityRepository.findOpportunityByQueueId(queueId);
+    const doc = await this.extractedOpportunityRepository.findByQueueId(queueId);
     if (!doc) throw new NotFoundException();
     return doc;
   }
@@ -30,7 +30,7 @@ export class ExtractedOpportunityController {
 
   @Get('/:queueId/status')
   async getOpportunityStatusByQueueId(@Param('queueId') queueId: string): Promise<OpportunityStatusDto> {
-    const doc = await this.extractedOpportunityRepository.findOpportunityByQueueId(queueId);
+    const doc = await this.extractedOpportunityRepository.findByQueueId(queueId);
     if (!doc) throw new NotFoundException();
     return new OpportunityStatusDto({
       queueId: doc.queueId,

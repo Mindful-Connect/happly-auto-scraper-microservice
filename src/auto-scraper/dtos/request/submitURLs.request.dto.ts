@@ -1,6 +1,6 @@
 import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, IsUrl, IsUUID, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
+import { QueueItemSourceEnum } from '@/happly/enums/queueItemSource.enum';
 
 export class QueueItem {
   @IsUrl()

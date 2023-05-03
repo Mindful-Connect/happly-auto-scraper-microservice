@@ -1,12 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { ExtractingOpportunitiesQueueItem } from '@/auto-scraper/models/ExtractingOpportunitiesQueueItem.model';
+import { ExtractingOpportunitiesQueueItem } from '@/auto-scraper/models/extractingOpportunitiesQueueItem.model';
 import { ExtractorService } from '@/auto-scraper/services/extractor.service';
 import * as crypto from 'crypto';
+import { ProcessLogger } from '@/auto-scraper/libraries/processLogger.lib';
+import { ModuleRef } from '@nestjs/core';
+import { OpportunityEventNamesEnum } from '@/auto-scraper/enums/opportunityEventNames.enum';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class ExtractionProcessManager {
   public queue: ExtractingOpportunitiesQueueItem[] = [];
   public readonly currentRunningProcesses: Record<string, ExtractorService> = {};
+
+  public constructor(private readonly processLogger: ProcessLogger, private moduleRef: ModuleRef, private readonly eventEmitter: EventEmitter2) {}
 
   @logger
   async addProcessToPool(url: string, extractorService: ExtractorService) {
@@ -29,6 +35,27 @@ export class ExtractionProcessManager {
     }
     delete this.currentRunningProcesses[hashedUrl];
     return true;
+  }
+
+  @logger
+  async next(processLogger: ProcessLogger = this.processLogger) {
+    if (this.queue.length > 0) {
+      processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥', this.queue);
+      const nextItem = this.queue.shift();
+
+      const { extractingOpportunityDocument } = nextItem;
+
+      const extractorService = await this.moduleRef.resolve(ExtractorService);
+      extractorService.setExtractingOpportunityQueueItem(nextItem);
+      await this.addProcessToPool(extractingOpportunityDocument.url, extractorService);
+      extractorService
+        .extractOpportunity()
+        .catch(() =>
+          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractingOpportunityDocument, processLogger),
+        );
+    } else {
+      processLogger.info('There are no more items in the queue. yayi 🎉');
+    }
   }
 
   @logger

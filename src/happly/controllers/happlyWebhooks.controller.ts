@@ -13,7 +13,7 @@ export class HapplyWebhooksController {
 
   @Get('/extracted-opportunity/submit/:queueId')
   async submitExtractedOpportunity(@Param('queueId') queueId: string) {
-    const doc = await this.extractedOpportunityRepository.findOpportunityByQueueId(queueId);
+    const doc = await this.extractedOpportunityRepository.findByQueueId(queueId);
     if (!doc) throw new NotFoundException();
     this.opportunityPortalService.submitNewScrapedOpportunity(doc).catch(e => console.error(e));
   }

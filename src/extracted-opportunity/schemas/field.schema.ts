@@ -16,9 +16,8 @@ export type FieldDocument = HydratedDocument<Field>;
  */
 @Schema({ _id: false }) // Disable _id generation for the base schema
 export class Field<TData extends FieldPossibleTypes = null> {
-  constructor(fieldType: FieldPossibleTypesString = 'string', contextAwarenessHelper?: string) {
+  constructor(fieldType: FieldPossibleTypesString = 'string') {
     this.fieldType = fieldType;
-    this.contextAwarenessHelper = contextAwarenessHelper;
   }
 
   /**
@@ -49,16 +48,6 @@ export class Field<TData extends FieldPossibleTypes = null> {
    */
   @Prop({ default: null })
   relevantLink: string | null;
-
-  /**
-   *  (optional)
-   * The helper text to be used by chatGPT to help the chatGPT understand
-   * the context of the field.
-   * Example value:
-   * "where `opportunitys_grant_types` is an array of strings, phrasing what types of grants this opportunity gives the applicants."
-   */
-  @Prop()
-  contextAwarenessHelper?: string;
 }
 
 export const FieldSchema = SchemaFactory.createForClass(Field);

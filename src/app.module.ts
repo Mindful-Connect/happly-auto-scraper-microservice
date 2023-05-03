@@ -4,7 +4,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AutoScraperModule } from '@/auto-scraper/auto-scraper.module';
-import { ExtractedOpportunityModule } from './extracted-opportunity/extracted-opportunity.module';
+import { ExtractedOpportunityModule } from '@/extracted-opportunity/extractedOpportunity.module';
+import { ExpiredOpportunityModule } from '@/expired-opportunity/expiredOpportunity.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ExtractedOpportunityModule } from './extracted-opportunity/extracted-op
     ScheduleModule.forRoot(),
     AutoScraperModule,
     ExtractedOpportunityModule,
+    ExpiredOpportunityModule,
   ],
 })
 export class AppModule {}

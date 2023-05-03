@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, Sse, MessageEvent, UseGuards } from '@nestjs/common';
-import { AutoScraperService } from '@/auto-scraper/services/auto-scraper.service';
+import { Body, Controller, Post, Sse, MessageEvent, UseGuards } from '@nestjs/common';
+import { AutoScraperService } from '@/auto-scraper/services/autoScraper.service';
 import { SubmitURLsRequestDto } from '@/auto-scraper/dtos/request/submitURLs.request.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { fromEvent, map, Observable } from 'rxjs';

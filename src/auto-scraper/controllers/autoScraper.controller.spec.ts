@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AutoScraperController } from './auto-scraper.controller';
-import { AutoScraperService } from '@/auto-scraper/services/auto-scraper.service';
+import { AutoScraperController } from './autoScraper.controller';
+import { AutoScraperService } from '@/auto-scraper/services/autoScraper.service';
 
 describe('AutoScraperController', () => {
   let autoScraperController: AutoScraperController;

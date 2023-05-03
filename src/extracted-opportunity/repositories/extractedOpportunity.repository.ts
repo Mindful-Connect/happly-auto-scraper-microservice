@@ -13,26 +13,26 @@ export class ExtractedOpportunityRepository {
     private extractedOpportunityModel: Model<ExtractedOpportunityDocument>,
   ) {}
 
-  async createOpportunity(extractedOpportunity: ExtractedOpportunity) {
+  async create(extractedOpportunity: ExtractedOpportunity) {
     const createdDoc = new this.extractedOpportunityModel(extractedOpportunity);
     await saveSafely(createdDoc);
     return createdDoc;
   }
 
-  async getOpportunities(): Promise<ExtractedOpportunity[]> {
+  async findAll(): Promise<ExtractedOpportunity[]> {
     return await this.extractedOpportunityModel.find().exec();
   }
 
-  async findOpportunityByURL(url: string) {
+  async findByURL(url: string) {
     return await this.extractedOpportunityModel.findOne({ url }).exec();
   }
 
-  async findOpportunityByQueueId(queueId: string): Promise<ExtractedOpportunityDocument | null> {
+  async findByQueueId(queueId: string): Promise<ExtractedOpportunityDocument | null> {
     return await this.extractedOpportunityModel.findOne({ queueId }).exec();
   }
 
   async getScrapedOpportunityByQueueId(queueId: string): Promise<ScrapedOpportunityDto | null> {
-    const doc = await this.findOpportunityByQueueId(queueId);
+    const doc = await this.findByQueueId(queueId);
     if (!doc) return null;
     return await this.getScrapedOpportunityDto(doc);
   }

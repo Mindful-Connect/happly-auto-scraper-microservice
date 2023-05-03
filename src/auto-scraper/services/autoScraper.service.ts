@@ -14,7 +14,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { OpportunityPortalService } from '@/happly/services/opportunityPortal.service';
 import { QueueItem } from '@/auto-scraper/dtos/request/submitURLs.request.dto';
 import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
-import { QueueItemSourceEnum } from '@/happly/enums/QueueItemSource.enum';
+import { QueueItemSourceEnum } from '@/happly/enums/queueItemSource.enum';
 import { ExtractedOpportunityRepository } from '@/extracted-opportunity/repositories/extractedOpportunity.repository';
 import * as https from 'https';
 import * as crypto from 'crypto';
@@ -35,10 +35,10 @@ export class AutoScraperService {
 
   async submitQueueItem(queueItem: QueueItem): Promise<any> {
     const { url, name, queueId, source } = queueItem;
-    let extractedOpportunityDocument = await this.extractedOpportunityRepository.findOpportunityByURL(url);
+    let extractedOpportunityDocument = await this.extractedOpportunityRepository.findByURL(url);
     if (extractedOpportunityDocument === null) {
       console.info('No entry found for this URL. Creating a new one... 🆕✨', url);
-      extractedOpportunityDocument = await this.extractedOpportunityRepository.createOpportunity(
+      extractedOpportunityDocument = await this.extractedOpportunityRepository.create(
         new ExtractedOpportunity({
           url,
           name,
@@ -113,13 +113,18 @@ export class AutoScraperService {
 
   @Cron(CronExpression.EVERY_30_MINUTES)
   async handleCron() {
-    return; // TODO: remove this line to enable cron
+    // return; // TODO: remove this line to enable cron
     const newQueuedOpportunities = await this.opportunityPortalService.getQueuedOpportunities();
 
     if (newQueuedOpportunities.length > 0) {
       this.processLogger.info(`Found ${newQueuedOpportunities.length} new queued opportunities!`);
       newQueuedOpportunities.forEach(queueItem => {
-        this.submitQueueItem(queueItem)
+        this.submitQueueItem({
+          url: queueItem.url,
+          name: queueItem.name,
+          queueId: queueItem.queue_id,
+          source: queueItem.source,
+        })
           .then()
           .catch(e => {
             console.error(e);
@@ -190,23 +195,7 @@ export class AutoScraperService {
         });
     }
 
-    if (this.extractionProcessManager.queue.length > 0) {
-      processLogger.info('There are still items in the queue. Extracting the next item... 🦾️🔥', this.extractionProcessManager.queue);
-      const nextItem = this.extractionProcessManager.queue.shift();
-
-      const { extractingOpportunityDocument } = nextItem;
-
-      const extractorService = await this.moduleRef.resolve(ExtractorService);
-      extractorService.setExtractingOpportunityQueueItem(nextItem);
-      await this.extractionProcessManager.addProcessToPool(extractingOpportunityDocument.url, extractorService);
-      extractorService
-        .extractOpportunity()
-        .catch(() =>
-          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractingOpportunityDocument, processLogger),
-        );
-    } else {
-      processLogger.info('There are no more items in the queue. yayi 🎉');
-    }
+    await this.extractionProcessManager.next(processLogger);
   }
 
   @OnEvent(OpportunityEventNamesEnum.OpportunityExtractionRecurseNeeded)

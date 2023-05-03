@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ExtractionProcessUpdateDto } from '@/auto-scraper/dtos/extractionProcessUpdate.dto';
 import { OpportunityEventNamesEnum } from '@/auto-scraper/enums/opportunityEventNames.enum';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { ExtractedOpportunityDocument } from '@/extracted-opportunity/schemas/extractedOpportunity.schema';
+import { HydratedDocument } from 'mongoose';
 
 @Injectable({ scope: Scope.TRANSIENT })
 export class ProcessLogger {
@@ -12,9 +12,9 @@ export class ProcessLogger {
     this.shouldLogInfo = this.configService.get<boolean>('NEST_DEBUG') ?? false;
   }
 
-  private _extractedOpportunityDocument: ExtractedOpportunityDocument | null = null;
-  set extractedOpportunityDocument(value: ExtractedOpportunityDocument) {
-    this._extractedOpportunityDocument = value;
+  private _document: HydratedDocument<any> | null = null;
+  set document(value: HydratedDocument<any>) {
+    this._document = value;
   }
 
   broadcast(payload: ExtractionProcessUpdateDto, ...otherArgs) {
@@ -24,7 +24,7 @@ export class ProcessLogger {
   }
 
   info(...message: any[]) {
-    if (this._extractedOpportunityDocument !== null) this._extractedOpportunityDocument.logs.push(message[0]);
+    if (this._document !== null && this._document.logs) this._document.logs.push(message[0]);
 
     if (!this.shouldLogInfo) return;
     console.info(...message);
