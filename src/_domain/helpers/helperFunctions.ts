@@ -70,7 +70,7 @@ export function getCheerioAPIFromHTML(html: string) {
 }
 
 export function isValidUri(uri: string | null) {
-  return uri !== null && uri.length > 0;
+  return uri !== null && typeof uri === 'string' && uri.length > 0;
 }
 
 export function isValidUrl(url: string) {

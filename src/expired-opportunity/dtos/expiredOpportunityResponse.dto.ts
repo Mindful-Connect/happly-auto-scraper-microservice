@@ -11,6 +11,8 @@ export class ExpiredOpportunityResponseDto {
 
   isPermanentlyClosed: boolean;
 
+  lastScrapedAt: Date;
+
   constructor(required?: Required<ExpiredOpportunityResponseDto>) {
     Object.assign(this, required);
   }

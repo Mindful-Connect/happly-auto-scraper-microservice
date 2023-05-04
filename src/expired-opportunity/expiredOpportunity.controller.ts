@@ -27,6 +27,7 @@ export class ExpiredOpportunityController {
             deadline: i.application_deadline_date.data,
             status: i.status,
             isPermanentlyClosed: i.isPermanentlyClosed,
+            lastScrapedAt: i.lastScrapedAt,
           }),
       ),
       totalCount,
