@@ -9,7 +9,7 @@ import { saveSafely } from '@/_domain/helpers/mongooseHelpers';
 
 @Injectable()
 export class ExpiredOpportunityService implements OnModuleInit {
-  private readonly poolSize = 1; // TODO: for testing i put 1. it should be 10.
+  private readonly poolSize = 10;
   private readonly pool: Array<Promise<[string[], number, ExpiredOpportunityDocument]> | null> = new Array(this.poolSize).fill(null);
 
   constructor(
@@ -115,7 +115,7 @@ export class ExpiredOpportunityService implements OnModuleInit {
 
       // continue with the relevant links
       if (relevantLinks && Array.isArray(relevantLinks) && relevantLinks.length > 0) {
-        // TODO: support multiple links
+        // TODO: support multiple relevant links
         const link = relevantLinks[0];
         const service = await this.moduleRef.resolve(ExtractorForExpiredOpportunityService);
         service.setExtractingOpportunityQueueItem({

@@ -113,7 +113,6 @@ export class AutoScraperService {
 
   @Cron(CronExpression.EVERY_30_MINUTES)
   async handleCron() {
-    // return; // TODO: remove this line to enable cron
     const newQueuedOpportunities = await this.opportunityPortalService.getQueuedOpportunities();
 
     if (newQueuedOpportunities.length > 0) {

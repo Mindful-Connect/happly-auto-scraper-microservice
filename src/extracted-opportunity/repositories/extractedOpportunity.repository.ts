@@ -54,38 +54,38 @@ export class ExtractedOpportunityRepository {
         ? normalizeDateFromString(doc.application_deadline_date.data)
         : doc.application_deadline_date.data,
       process_time: doc.application_process_time.data,
-      comp_req: interestingFields.company_eligibility_requirements.stringify(doc.company_eligibility_requirements.data), // TODO
-      project_eligibility: interestingFields.project_eligibility.stringify(doc.project_eligibility.data), // TODO
-      ineligibility: interestingFields.ineligibility_reasons.stringify(doc.ineligibility_reasons.data), // TODO
+      comp_req: interestingFields.company_eligibility_requirements.stringify(doc.company_eligibility_requirements.data),
+      project_eligibility: interestingFields.project_eligibility.stringify(doc.project_eligibility.data),
+      ineligibility: interestingFields.ineligibility_reasons.stringify(doc.ineligibility_reasons.data),
       eligible_activities: interestingFields.eligible_activities.stringify(doc.eligible_activities.data),
-      eligibility_candidates: '', // TODO (this has been empty in the portal)
-      role_req: interestingFields.role_eligibility_requirements.stringify(doc.role_eligibility_requirements.data), // TODO
-      app_req: interestingFields.application_process_instructions.stringify(doc.application_process_instructions.data), // TODO
-      cash_up: doc.cash_upfront.data !== null ? (doc.cash_upfront.data ? '1' : '0') : null, // TODO
+      eligibility_candidates: '', // (this has been empty in the portal)
+      role_req: interestingFields.role_eligibility_requirements.stringify(doc.role_eligibility_requirements.data),
+      app_req: interestingFields.application_process_instructions.stringify(doc.application_process_instructions.data),
+      cash_up: doc.cash_upfront.data !== null ? (doc.cash_upfront.data ? '1' : '0') : null,
       company_size_min_req:
         Array.isArray(doc.company_size_requirements.data) &&
         doc.company_size_requirements.data[0] !== undefined &&
         !isNaN(doc.company_size_requirements.data[0])
           ? doc.company_size_requirements.data[0]
-          : '0', // TODO
+          : '0',
       company_size_max_req:
         Array.isArray(doc.company_size_requirements.data) &&
         doc.company_size_requirements.data[1] !== undefined &&
         !isNaN(doc.company_size_requirements.data[1])
           ? doc.company_size_requirements.data[1]
-          : '', // TODO
+          : '',
       revenue_min_req:
         Array.isArray(doc.company_revenue_requirements.data) &&
         doc.company_revenue_requirements.data[0] !== undefined &&
         !isNaN(parseInt(doc.company_revenue_requirements.data[0]))
           ? doc.company_revenue_requirements.data[0]
-          : '0', // TODO
+          : '0',
       revenue_max_req:
         Array.isArray(doc.company_revenue_requirements.data) &&
         doc.company_revenue_requirements.data[1] !== undefined &&
         !isNaN(parseInt(doc.company_revenue_requirements.data[1]))
           ? doc.company_revenue_requirements.data[1]
-          : null, // TODO
+          : null,
       grant_type: interestingFields.opportunitys_grant_types.stringify(doc.opportunitys_grant_types.data),
       country: doc.application_country.data ?? '',
       region:
@@ -99,17 +99,17 @@ export class ExtractedOpportunityRepository {
             )
           : '[]',
       region_tags: interestingFields.municipalities.stringify(doc.municipalities.data),
-      candidate_req_tags: interestingFields.candidate_requirement_tags.stringify(doc.candidate_requirement_tags.data), // TODO
-      subcategories: interestingFields.opportunity_categories.stringify(doc.opportunity_categories.data), // TODO
-      subcategories_tags: interestingFields.opportunity_subcategories.stringify(doc.opportunity_subcategories.data), // TODO
+      candidate_req_tags: interestingFields.candidate_requirement_tags.stringify(doc.candidate_requirement_tags.data),
+      subcategories: interestingFields.opportunity_categories.stringify(doc.opportunity_categories.data),
+      subcategories_tags: interestingFields.opportunity_subcategories.stringify(doc.opportunity_subcategories.data),
       industry: interestingFields.industries.stringify(doc.industries.data),
       keywords: interestingFields.keywords.stringify(doc.keywords.data),
       app_type: interestingFields.application_process_type.stringify(doc.application_process_type.data),
-      business_type_req: interestingFields.business_type_requirements.stringify(doc.business_type_requirements.data), // TODO
-      role_type_tags: interestingFields.role_type_tags.stringify(doc.role_type_tags.data), // TODO
-      role_length_tags: interestingFields.role_length_tags.stringify(doc.role_length_tags.data), // TODO
-      project_activities_tags: interestingFields.role_length_tags.stringify(doc.project_activities_tags.data), // TODO
-      project_length_tags: interestingFields.project_length_tags.stringify(doc.project_length_tags.data), // TODO
+      business_type_req: interestingFields.business_type_requirements.stringify(doc.business_type_requirements.data),
+      role_type_tags: interestingFields.role_type_tags.stringify(doc.role_type_tags.data),
+      role_length_tags: interestingFields.role_length_tags.stringify(doc.role_length_tags.data),
+      project_activities_tags: interestingFields.role_length_tags.stringify(doc.project_activities_tags.data),
+      project_length_tags: interestingFields.project_length_tags.stringify(doc.project_length_tags.data),
       insights: interestingFields.opportunity_insights.stringify(doc.opportunity_insights.data),
     });
   }
