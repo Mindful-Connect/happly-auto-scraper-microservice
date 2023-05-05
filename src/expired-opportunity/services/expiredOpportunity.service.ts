@@ -103,6 +103,7 @@ export class ExpiredOpportunityService implements OnModuleInit {
           })
           .catch(e => {
             console.error(e);
+            expiredOpportunity.lastScrapedAt = new Date();
             saveSafely(expiredOpportunity);
             resolve([[], index, expiredOpportunity]);
           });
@@ -133,6 +134,7 @@ export class ExpiredOpportunityService implements OnModuleInit {
             })
             .catch(e => {
               console.error(e);
+              doc.lastScrapedAt = new Date();
               saveSafely(doc);
             })
             .finally(() => {
@@ -176,6 +178,7 @@ export class ExpiredOpportunityService implements OnModuleInit {
           })
           .catch(e => {
             console.error(e);
+            doc.lastScrapedAt = new Date();
             saveSafely(doc);
             resolve([[], index, anotherExpiredOpportunity]);
           });
