@@ -104,11 +104,13 @@ export class AutoScraperService {
       extractingOpportunityDocument: extractedOpportunityDocument,
       isNested: false,
     });
-    await this.extractionProcessManager.addProcessToPool(extractedOpportunityDocument.url, extractorService);
-    extractorService.extractOpportunity().catch(e => {
-      console.error('Could not extract the opportunity! ⚠️', e);
-      this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
-    });
+    const processAdded = await this.extractionProcessManager.addProcessToPool(extractedOpportunityDocument.url, extractorService);
+    if (processAdded) {
+      extractorService.extractOpportunity().catch(e => {
+        console.error('Could not extract the opportunity! ⚠️', e);
+        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
+      });
+    }
   }
 
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -239,11 +241,13 @@ export class AutoScraperService {
         extractingOpportunityDocument: extractedOpportunityDocument,
         isNested: true,
       });
-      await this.extractionProcessManager.addProcessToPool(extractedOpportunityDocument.url, extractorService);
-      extractorService.extractOpportunity().catch(e => {
-        console.error('Could not extract the nested opportunity! ⚠️', e);
-        this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
-      });
+      const processAdded = await this.extractionProcessManager.addProcessToPool(extractedOpportunityDocument.url, extractorService);
+      if (processAdded) {
+        extractorService.extractOpportunity().catch(e => {
+          console.error('Could not extract the nested opportunity! ⚠️', e);
+          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractedOpportunityDocument, this.processLogger);
+        });
+      }
     }
 
     if (!anyRelevantLinkFound) {

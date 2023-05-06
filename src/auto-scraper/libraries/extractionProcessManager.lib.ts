@@ -17,6 +17,10 @@ export class ExtractionProcessManager {
   @logger
   async addProcessToPool(url: string, extractorService: ExtractorService) {
     const hashedUrl = this.getHashedUrl(url);
+    if (this.currentRunningProcesses[hashedUrl]) {
+      console.debug(`Process already exists for url ${url} in currentRunningExtractionProcesses`);
+      return false;
+    }
     this.currentRunningProcesses[hashedUrl] = extractorService;
     return true;
   }
@@ -47,12 +51,14 @@ export class ExtractionProcessManager {
 
       const extractorService = await this.moduleRef.resolve(ExtractorService);
       extractorService.setExtractingOpportunityQueueItem(nextItem);
-      await this.addProcessToPool(extractingOpportunityDocument.url, extractorService);
-      extractorService
-        .extractOpportunity()
-        .catch(() =>
-          this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractingOpportunityDocument, processLogger),
-        );
+      const processAdded = await this.addProcessToPool(extractingOpportunityDocument.url, extractorService);
+      if (processAdded) {
+        extractorService
+          .extractOpportunity()
+          .catch(() =>
+            this.eventEmitter.emit(OpportunityEventNamesEnum.OpportunityExtractionPoolRelease, extractingOpportunityDocument, processLogger),
+          );
+      }
     } else {
       processLogger.info('There are no more items in the queue. yayi 🎉');
     }
