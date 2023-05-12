@@ -58,7 +58,7 @@ export class AutoScraperService {
     try {
       const pageHTML = await axios.get(url, {
         httpsAgent: new https.Agent({
-          // for self signed you could also add
+          // for self-signed you could also add
           // rejectUnauthorized: false,
 
           // allow legacy server

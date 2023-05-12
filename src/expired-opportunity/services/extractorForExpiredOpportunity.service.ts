@@ -4,7 +4,6 @@ import {
   interestingFields as expiredOpportunityInterestingFields,
 } from '@/expired-opportunity/expiredOpportunity.schema';
 import { ChatGPTService } from '@/openai/services/chatgpt.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ProcessLogger } from '@/auto-scraper/libraries/processLogger.lib';
 import * as cheerio from 'cheerio';
 import axios from 'axios';
@@ -33,7 +32,7 @@ export class ExtractorForExpiredOpportunityService {
 
   private static SegmentSplittingIdentifiers: string[] = ['<h1', '<h2', '<h3', '<p', '. '];
 
-  constructor(private chatGPTService: ChatGPTService, private eventEmitter: EventEmitter2, public processLogger: ProcessLogger) {}
+  constructor(private chatGPTService: ChatGPTService, public processLogger: ProcessLogger) {}
 
   setExtractingOpportunityQueueItem(expiredOpportunityPoolItemModel: ExpiredOpportunityPoolItemModel) {
     this.poolIndex = expiredOpportunityPoolItemModel.index;
@@ -325,7 +324,7 @@ ${whereClauses}
   }
 
   private segmentTheChunk(htmlChunk: string, separatorIndex = 0): NestedStringArray {
-    // should i chunk it more?
+    // should I chunk it more?
     const numOfTokens = countTokens([ExtractorForExpiredOpportunityService.SystemMessage, this.getUserMessage(htmlChunk)]);
     if (TokenLimits['gpt-3.5-turbo'] / 2 < numOfTokens) {
       const nextSeparator =
@@ -355,7 +354,7 @@ ${whereClauses}
   private async getCheerioAPIStatic() {
     const pageHTML = await axios.get(this.url, {
       httpsAgent: new https.Agent({
-        // for self signed you could also add
+        // for self-signed you could also add
         // rejectUnauthorized: false,
 
         // allow legacy server

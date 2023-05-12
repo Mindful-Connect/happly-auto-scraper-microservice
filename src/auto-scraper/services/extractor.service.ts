@@ -64,7 +64,7 @@ export class ExtractorService {
       this.processLogger.info('Static page detected, standard fetching... 🚛💨');
       const pageHTML = await axios.get(this.url, {
         httpsAgent: new https.Agent({
-          // for self signed you could also add
+          // for self-signed you could also add
           // rejectUnauthorized: false,
 
           // allow legacy server
@@ -439,7 +439,7 @@ export class ExtractorService {
   }
 
   private segmentTheChunk(htmlChunk: string, separatorIndex = 0): NestedStringArray {
-    // should i chunk it more?
+    // should I chunk it more?
     const numOfTokens = countTokens([ExtractorService.SystemMessage, this.getUserMessage(htmlChunk)]);
     if (TokenLimits['gpt-3.5-turbo'] / 2 < numOfTokens) {
       const nextSeparator = ExtractorService.SegmentSplittingIdentifiers.length - 1 === separatorIndex ? separatorIndex : separatorIndex + 1;

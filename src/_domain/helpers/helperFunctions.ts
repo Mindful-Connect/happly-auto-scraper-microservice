@@ -102,20 +102,13 @@ export function isValidDateString(date: string) {
   return !isNaN(Date.parse(date));
 }
 
-export function tryReassembleUrl(appUrl: string, uri: string) {
-  try {
-    const url = new URL(appUrl);
-
-    if (uri.startsWith('/')) {
-      return url.origin + uri;
-    } else {
-      return url.origin + '/' + uri;
-    }
-  } catch (e) {
-    throw new Error('Invalid URL');
-  }
-}
-
+/**
+ * Given a URL and a URI, it puts them together using the host of the URL and the whole URI together.
+ * e.g.: appUrl = https://www.google.com/a/b/c, uri = /search?q=hello
+ * expected result: https://www.google.com/search?q=hello
+ * @param appUrl
+ * @param uri
+ */
 export function reassembleUrl(appUrl: string, uri: string) {
   try {
     const url = new URL(appUrl);
@@ -127,6 +120,25 @@ export function reassembleUrl(appUrl: string, uri: string) {
     }
   } catch (e) {
     return uri;
+  }
+}
+
+/**
+ * Same as `reassembleUrl`, but throws an error if the URL is invalid.
+ * @param appUrl
+ * @param uri
+ */
+export function tryReassembleUrl(appUrl: string, uri: string) {
+  try {
+    const url = new URL(appUrl);
+
+    if (uri.startsWith('/')) {
+      return url.origin + uri;
+    } else {
+      return url.origin + '/' + uri;
+    }
+  } catch (e) {
+    throw new Error('Invalid URL');
   }
 }
 

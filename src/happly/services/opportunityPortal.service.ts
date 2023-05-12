@@ -87,60 +87,6 @@ export class OpportunityPortalService {
     }
   }
 
-  async test() {
-    const scrapedOpportunityDto = new ScrapedOpportunityDto({
-      source_id: 'test',
-      name: 'dfdafasdfsd',
-      program_site: 'dsfadsf',
-      app_link: 'sdfad',
-      provider: 'asdads',
-      description: 'adsfadsf',
-      value: '',
-      amount: '',
-      open_date: '',
-      deadlines: '',
-      process_time: '',
-      comp_req: '',
-      project_eligibility: '',
-      ineligibility: '',
-      eligible_activities: '',
-      eligibility_candidates: '',
-      role_req: '',
-      app_req: '',
-      cash_up: '1',
-      company_size_min_req: '',
-      company_size_max_req: '',
-      revenue_min_req: '',
-      revenue_max_req: '',
-      grant_type: '',
-      country: '',
-      region: '',
-      region_tags: '',
-      candidate_req_tags: '',
-      subcategories: '',
-      subcategories_tags: '',
-      industry: '',
-      keywords: '[]',
-      app_type: '',
-      business_type_req: '',
-      role_type_tags: '',
-      role_length_tags: '',
-      project_activities_tags: '',
-      project_length_tags: '',
-      insights: '',
-    });
-    try {
-      const response = await this.httpService.axiosRef.post(`${this.url}/opportunities/scraped`, scrapedOpportunityDto, {
-        headers: {
-          Authorization: 'Bearer ' + this.token,
-          'Content-Type': 'application/json',
-        },
-      });
-    } catch (e) {
-      console.error('error', e);
-    }
-  }
-
   async submitNewScrapedOpportunity(extractedOpportunityDocument: ExtractedOpportunityDocument) {
     let scrapedOpportunityDto: ScrapedOpportunityDto;
     try {
