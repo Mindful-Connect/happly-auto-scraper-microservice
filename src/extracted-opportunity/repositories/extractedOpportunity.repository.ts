@@ -87,13 +87,13 @@ export class ExtractedOpportunityRepository {
           ? doc.company_revenue_requirements.data[1]
           : null,
       grant_type: interestingFields.opportunitys_grant_types.stringify(doc.opportunitys_grant_types.data),
-      country: doc.application_country.data ?? '',
+      country: interestingFields.application_countries.stringify(doc.application_countries.data),
       region:
-        Array.isArray(doc.provinces.data) && doc.provinces.data.length > 0
+        Array.isArray(doc.provinces_abbreviations.data) && doc.provinces_abbreviations.data.length > 0
           ? JSON.stringify(
-              doc.provinces.data.map((p, i) => ({
-                name: p,
-                abbreviation: Array.isArray(doc.provinces_abbreviations.data) ? doc.provinces_abbreviations.data[i] ?? '' : '',
+              doc.provinces_abbreviations.data.map((pa, i) => ({
+                name: pa,
+                abbreviation: pa,
                 country: 1,
               })),
             )
