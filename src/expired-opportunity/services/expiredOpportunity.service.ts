@@ -72,6 +72,8 @@ export class ExpiredOpportunityService implements OnModuleInit {
   }
 
   async scrapeAll() {
+    if (this.poolSize < 1) return;
+
     // Fetch the first 10 (pool size) expired opportunities from the database that are not permanently closed and have not failed to fetch the page 3 times.
     // And sort them by the last scraped date. This is to make sure that the ones that have not been scraped for the longest time are scraped first.
     const expiredOpportunities = await this.expiredOpportunityRepository.model
@@ -80,7 +82,7 @@ export class ExpiredOpportunityService implements OnModuleInit {
         failedToFetchPageCount: { $lt: 3 },
       })
       .sort({ lastScrapedAt: 1, failedToFetchPageCount: 1 })
-      .limit(this.poolSize)
+      .limit(this.poolSize || 1)
       .exec();
 
     // Fill up the pool with the first 10 (pool size) expired opportunities
