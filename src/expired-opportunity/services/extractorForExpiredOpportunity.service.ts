@@ -46,6 +46,9 @@ export class ExtractorForExpiredOpportunityService {
 
     this.processLogger.document = doc;
 
+    doc.lastScrapedAt = new Date();
+    await saveSafely(doc);
+
     if (doc.failedToFetchPageCount > 3) {
       doc.errorDetails = 'Failed to fetch page';
       doc.status = ExpiredOpportunityScrapingStatusEnum.Failed;
