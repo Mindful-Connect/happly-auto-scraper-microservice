@@ -15,6 +15,7 @@ const tagsToStringDelegate: ToStringDelegate = f => JSON.stringify(f?.map((f: st
 const arraysToStringWithTypePropDelegate: ToStringDelegate = f => JSON.stringify(f?.map((f: string) => ({ type: f })) || []);
 const arraysToStringWithNamePropDelegate: ToStringDelegate = f => JSON.stringify(f?.map((f: string) => ({ name: f })) || []);
 const arraysToStringWithNewLineDelegate: ToStringDelegate = f => f?.join(' \r\n+') || '';
+const arraysToStringWithCommaDelegate: ToStringDelegate = f => f?.join(', ') || '';
 
 const InterestingFields = {
   opportunity_provider_name: new InterestingField(),
@@ -66,12 +67,15 @@ const InterestingFields = {
     'where `project_eligibility` is an array of strings, phrasing what types of project are eligible for this opportunity.',
   ).setToString(arraysToStringWithNewLineDelegate),
 
-  application_country: new InterestingField(),
-  provinces: new InterestingField(),
+  application_countries: new InterestingField(
+    'where `application_countries` is an array of strings, phrasing what countries are eligible for this opportunity.',
+  ).setToString(arraysToStringWithCommaDelegate),
   provinces_abbreviations: new InterestingField(
-    'where `provinces_abbreviations` is an array of strings based on `provinces`, phrasing the alpha code abbreviations of the provinces. e.g. `["ON", "QC"]` based on the `provinces` field.',
+    'where `provinces_abbreviations` is an array of strings, phrasing the alpha code abbreviations of the provinces or `administrative_area_level_1` in Google Map API.',
   ),
-  municipalities: new InterestingField().setToString(arraysToStringWithNamePropDelegate),
+  municipalities: new InterestingField(
+    'where `municipalities` is an array of strings, phrasing the municipalities or `administrative_area_level_2` in Google Map API.',
+  ).setToString(arraysToStringWithNamePropDelegate),
 
   company_size_requirements: new InterestingField(
     'where `company_size_requirements` is an array of two numbers, phrasing the minimum and maximum number of employees the company should have.',
@@ -238,10 +242,8 @@ export class ExtractedOpportunity {
   project_eligibility: Field<string[]> = new Field('string[]');
 
   @Prop({ type: FieldSchema })
-  application_country: Field<string> = new Field();
+  application_countries: Field<string[]> = new Field('string[]');
 
-  @Prop({ type: FieldSchema })
-  provinces: Field<string[]> = new Field('string[]');
   @Prop({ type: FieldSchema })
   provinces_abbreviations: Field<string[]> = new Field('string[]');
 
